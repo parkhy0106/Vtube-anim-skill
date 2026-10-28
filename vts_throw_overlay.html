@@ -1,0 +1,3544 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zero-Install VTS Full-Body Capsule Hitbox & Von Kármán Physics Overlay</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #physicsCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+    #hud {
+      position: fixed;
+      top: 14px;
+      left: 14px;
+      z-index: 10;
+      background: rgba(15, 23, 42, 0.93);
+      color: #f1f5f9;
+      padding: 13px 16px;
+      border-radius: 12px;
+      font-size: 12px;
+      box-shadow: 0 6px 28px rgba(0,0,0,0.55);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      width: 365px;
+      max-height: calc(100vh - 28px);
+      overflow-y: auto;
+    }
+    #hud.hidden { display: none; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 3px; }
+    button {
+      background: #6366f1;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 12px;
+      transition: background 0.15s, transform 0.08s;
+    }
+    button:hover { background: #4f46e5; }
+    button:active { transform: scale(0.98); }
+    button.secondary { background: #334155; }
+    button.secondary:hover { background: #475569; }
+    button.emerald { background: #10b981; }
+    button.emerald:hover { background: #059669; }
+    input[type="range"] { width: 125px; accent-color: #6366f1; }
+    select {
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid #475569;
+      border-radius: 4px;
+      padding: 4px 6px;
+      width: 165px;
+      font-size: 12px;
+    }
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 6px;
+    }
+    .status-dot.connected { background: #22c55e; }
+    .telemetry {
+      background: rgba(30, 41, 59, 0.88);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      color: #bae6fd;
+    }
+    .vib-cache-box {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 10.8px;
+      line-height: 1.4;
+      color: #fde68a;
+    }
+
+    /* 히트박스 위치 조정 모달 팝업 */
+    #hitboxModalBackdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(2, 6, 23, 0.65);
+      backdrop-filter: blur(3px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    #hitboxModalBackdrop.open {
+      display: flex;
+    }
+    #hitboxModal {
+      background: #0f172a;
+      color: #f8fafc;
+      border: 1px solid rgba(16, 185, 129, 0.45);
+      border-radius: 14px;
+      box-shadow: 0 20px 55px rgba(0, 0, 0, 0.75);
+      padding: 18px 20px;
+      width: 680px;
+      max-width: 95vw;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+      padding-bottom: 8px;
+    }
+    .modal-header h3 {
+      margin: 0;
+      font-size: 15px;
+      color: #34d399;
+    }
+    .modal-body {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+    #silhouetteCanvas {
+      background: radial-gradient(circle at 50% 45%, #1e293b 0%, #090d16 100%);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      border-radius: 10px;
+      cursor: grab;
+      width: 300px;
+      height: 390px;
+      display: block;
+    }
+    #silhouetteCanvas:active {
+      cursor: grabbing;
+    }
+    .modal-controls {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .control-group {
+      background: rgba(30, 41, 59, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .control-row input[type="range"] {
+      width: 145px;
+      accent-color: #10b981;
+    }
+    .val-badge {
+      font-family: ui-monospace, SFMono-Regular, monospace;
+      color: #6ee7b7;
+      min-width: 52px;
+      text-align: right;
+      font-size: 11.5px;
+    }
+    .cache-preview {
+      background: #090d16;
+      border: 1px solid rgba(52, 211, 153, 0.3);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      color: #a7f3d0;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      border-top: 1px solid rgba(148, 163, 184, 0.2);
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="physicsCanvas"></canvas>
+
+  <div id="hud">
+    <div><span id="statusDot" class="status-dot"></span><strong id="statusText">VTS 연결 대기 중...</strong></div>
+
+    <div class="telemetry" id="forceReadout">
+      ∑F (합뉴턴): 0.00 N (Fx: +0.00, Fy: +0.00)<br/>
+      코어 실루엣: 머리~발끝 캡슐 (string 오브젝트 제외됨)
+    </div>
+
+    <div class="vib-cache-box" id="vibCacheReadout">
+      <strong>[물체별 본 카르만(von Kármán) 진동 캐시]</strong><br/>
+      아직 충돌한 물체가 없습니다. (충돌 시 주파수·진폭 캐싱)
+    </div>
+
+    <div class="row">
+      <label>투척 오브젝트 (질량)</label>
+      <select id="itemSelect">
+        <option value="image-removebg-preview.png" selected>🧀 치즈 [image-removebg-preview] (0.24 kg)</option>
+        <option value="beverage_Bepis (@7MDigital).png">Bepis 캔 (0.38 kg)</option>
+        <option value="beverage_7Bull (@7MDigital).png">7Bull 캔 (0.50 kg)</option>
+        <option value="bread (@denchisoft).png">식빵 (0.18 kg)</option>
+        <option value="egg (by @denchisoft).png">달걀 (0.06 kg)</option>
+        <option value="random">랜덤 오브젝트 (혼합 질량)</option>
+      </select>
+    </div>
+
+    <div class="row" style="background: rgba(30, 41, 59, 0.72); border: 1px dashed rgba(99, 102, 241, 0.55); border-radius: 8px; padding: 6px 8px; flex-direction: column; align-items: stretch; gap: 6px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+        <span style="font-size: 11.5px; color: #c7d2fe; font-weight: 600;">📷 커스텀 물체 사진 업로드</span>
+        <input id="customImgInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/*" multiple style="display: none;" />
+        <button type="button" onclick="document.getElementById('customImgInput').click()" style="padding: 4px 9px; font-size: 11px; background: #4f46e5;">+ 사진 파일 선택</button>
+      </div>
+      <div id="customUploadPreviewRow" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding-top: 2px;"></div>
+    </div>
+
+    <div class="row">
+      <label>오브젝트 크기 (Size)</label>
+      <input id="sizeSlider" type="range" min="0.05" max="0.50" step="0.01" value="0.16" />
+      <span id="sizeVal">0.16 (100%)</span>
+    </div>
+
+    <div class="row">
+      <label>던질 물체 속도 (v)</label>
+      <input id="speedSlider" type="range" min="0.35" max="2.50" step="0.05" value="1.00" />
+      <span id="speedVal">1.00x</span>
+    </div>
+
+    <div class="row">
+      <label>물체별 말랑한 정도 (s)</label>
+      <input id="softnessSlider" type="range" min="0.00" max="1.00" step="0.05" value="0.45" />
+      <span id="softnessVal">0.45</span>
+    </div>
+
+    <div class="row">
+      <label>진동 진폭 (A)</label>
+      <input id="ampSlider" type="range" min="0.05" max="0.75" step="0.01" value="0.30" />
+      <span id="ampVal">0.30</span>
+    </div>
+
+    <div class="row">
+      <label>비틀림 요동 세기 (θ)</label>
+      <input id="twistSlider" type="range" min="0.0" max="45.0" step="1.0" value="14.0" />
+      <span id="twistVal">14°</span>
+    </div>
+
+    <div class="row">
+      <label>물체 질량 배율 (m)</label>
+      <input id="massSlider" type="range" min="0.2" max="3.0" step="0.1" value="1.0" />
+      <span id="massVal">1.0x</span>
+    </div>
+
+    <div class="row">
+      <label>넉백 세기 (k)</label>
+      <input id="kbSlider" type="range" min="0.1" max="1.5" step="0.05" value="0.45" />
+      <span id="kbVal">0.45</span>
+    </div>
+
+    <div class="row">
+      <label>감쇠 정도 (d)</label>
+      <input id="dmpSlider" type="range" min="2.0" max="12.0" step="0.5" value="6.0" />
+      <span id="dmpVal">6.0</span>
+    </div>
+
+    <div class="row">
+      <label>모델 복원력 세기 (kr)</label>
+      <input id="restoreStiffSlider" type="range" min="0.5" max="15.0" step="0.5" value="3.5" />
+      <span id="restoreStiffVal">3.5</span>
+    </div>
+
+    <div class="row">
+      <label>모델 복원 댐핑 (cr)</label>
+      <input id="restoreDampSlider" type="range" min="0.5" max="12.0" step="0.5" value="3.0" />
+      <span id="restoreDampVal">3.0</span>
+    </div>
+
+    <div class="row">
+      <label>복귀 시간 (r초)</label>
+      <input id="rstSlider" type="range" min="0.0" max="5.0" step="0.1" value="0.8" />
+      <span id="rstVal">0.8s</span>
+    </div>
+
+    <div class="row">
+      <label>피격 표정</label>
+      <select id="expSelect">
+        <option value="shock">Shock Sign</option>
+        <option value="cry">Eyes Cry</option>
+        <option value="angry">Angry Sign</option>
+        <option value="heart">Heart Eyes</option>
+        <option value="none">None (물리만)</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <label for="randomSpawnPosChk">투척 시작 위치 랜덤 (좌·우·상단)</label>
+      <input id="randomSpawnPosChk" type="checkbox" checked />
+    </div>
+
+    <div class="row">
+      <label for="showDebugChk">전신 캡슐 히트박스 표시</label>
+      <input id="showDebugChk" type="checkbox" checked />
+    </div>
+
+    <div class="btn-grid">
+      <button class="emerald" style="grid-column: span 2;" onclick="openHitboxModal()">히트박스 위치 조정 (모델 실루엣 & 캡슐 캐시)</button>
+      <button onclick="spawnProjectile()">1개 던지기 (VTS 표시)</button>
+      <button onclick="spawnBarrage(5, 120)">5개 연속 투척</button>
+      <button onclick="spawnBarrage(12, 80)">12개 집중 폭격</button>
+      <button onclick="spawnAvalanche(20, 55)" style="background:#0ea5e9;">와르르 쏟아붓기 (적층)</button>
+      <button class="secondary" style="grid-column: span 2;" onclick="clearScheduledSpawnTimers(); projectiles.length=0; activeImpulses.length=0; resetToDefaultState(0, true)">즉시 Default 복귀</button>
+    </div>
+  </div>
+
+  <!-- 히트박스 위치 조정 팝업 모달 -->
+  <div id="hitboxModalBackdrop">
+    <div id="hitboxModal">
+      <div class="modal-header">
+        <h3>전신 캡슐 히트박스 위치·길이·두께 조정 (non-string 코어 실루엣 기준)</h3>
+        <span style="font-size:11px; color:#94a3b8;">드래그 또는 슬라이더로 조절 후 [확인] 클릭</span>
+      </div>
+
+      <div class="modal-body">
+        <div>
+          <canvas id="silhouetteCanvas" width="300" height="390"></canvas>
+        </div>
+
+        <div class="modal-controls">
+          <div class="control-group">
+            <div style="font-size:11.5px; color:#cbd5e1; font-weight:600; margin-bottom:2px;">
+              기본 Offset(모델 기준점) 대비 캡슐 상대 관계 조절
+            </div>
+
+            <div class="control-row">
+              <label>캡슐 길이 (Length)</label>
+              <input id="capLenSlider" type="range" min="0.40" max="2.60" step="0.02" value="2.00" />
+              <span class="val-badge" id="capLenVal">2.00</span>
+            </div>
+
+            <div class="control-row">
+              <label>캡슐 두께/반경 (Radius)</label>
+              <input id="capRadSlider" type="range" min="0.04" max="0.42" step="0.005" value="0.135" />
+              <span class="val-badge" id="capRadVal">0.135</span>
+            </div>
+
+            <div class="control-row">
+              <label>위치 오프셋 X (OffsetX)</label>
+              <input id="capOffXSlider" type="range" min="-0.75" max="0.75" step="0.01" value="0.00" />
+              <span class="val-badge" id="capOffXVal">+0.00</span>
+            </div>
+
+            <div class="control-row">
+              <label>위치 오프셋 Y (OffsetY)</label>
+              <input id="capOffYSlider" type="range" min="-0.75" max="0.75" step="0.01" value="0.08" />
+              <span class="val-badge" id="capOffYVal">+0.08</span>
+            </div>
+
+            <div style="font-size:11px; color:#94a3b8; line-height:1.35;">
+              💡 좌측 캔버스에서 <strong>캡슐 중심(C)</strong>을 드래그하면 위치(X, Y)가 이동하고, <strong>상단(B)/하단(A) 캡</strong>을 드래그하면 길이가, <strong>측면 테두리(R)</strong>를 드래그하면 두께가 조절됩니다.
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11px; color:#94a3b8; margin-bottom:4px;">
+              휘발성 인메모리 캐시 (`window.capsuleRelationCache` — 재시작 시 초기화됨):
+            </div>
+            <div class="cache-preview" id="capsuleCachePreview"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="secondary" onclick="resetModalCapsuleToDefault()">기본값(전신) 복원</button>
+        <button type="button" class="secondary" onclick="closeHitboxModal(false)">취소</button>
+        <button type="button" class="emerald" onclick="closeHitboxModal(true)">확인 (캐시에 저장)</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // [기록] Thin-Plate Spline (TPS) 및 B-Spline 기반 캔버스 왜곡/격자 코드는
+    // VTS 네이티브 화면에서 격자가 보이지 않고 왜곡이 부자연스러워 실패로 기록(FAILURE_LOG.md) 후 완전 제거(Truncate)함.
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("hud") === "0") {
+      document.getElementById("hud").classList.add("hidden");
+    }
+
+    const canvas = document.getElementById("physicsCanvas");
+    const ctx = canvas.getContext("2d");
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    // UI 바인딩
+    const sizeSlider = document.getElementById("sizeSlider");
+    const speedSlider = document.getElementById("speedSlider");
+    const softnessSlider = document.getElementById("softnessSlider");
+    const ampSlider = document.getElementById("ampSlider");
+    const twistSlider = document.getElementById("twistSlider");
+    const massSlider = document.getElementById("massSlider");
+    const kbSlider = document.getElementById("kbSlider");
+    const dmpSlider = document.getElementById("dmpSlider");
+    const restoreStiffSlider = document.getElementById("restoreStiffSlider");
+    const restoreDampSlider = document.getElementById("restoreDampSlider");
+    const rstSlider = document.getElementById("rstSlider");
+    const expSelect = document.getElementById("expSelect");
+    const itemSelect = document.getElementById("itemSelect");
+    const showDebugChk = document.getElementById("showDebugChk");
+    const forceReadout = document.getElementById("forceReadout");
+    const vibCacheReadout = document.getElementById("vibCacheReadout");
+
+    speedSlider.oninput = () => document.getElementById("speedVal").textContent = Number(speedSlider.value).toFixed(2) + "x";
+    twistSlider.oninput = () => document.getElementById("twistVal").textContent = Number(twistSlider.value).toFixed(0) + "°";
+    massSlider.oninput = () => document.getElementById("massVal").textContent = Number(massSlider.value).toFixed(1) + "x";
+    kbSlider.oninput = () => document.getElementById("kbVal").textContent = Number(kbSlider.value).toFixed(2);
+    dmpSlider.oninput = () => document.getElementById("dmpVal").textContent = Number(dmpSlider.value).toFixed(1);
+    restoreStiffSlider.oninput = () => document.getElementById("restoreStiffVal").textContent = Number(restoreStiffSlider.value).toFixed(1);
+    restoreDampSlider.oninput = () => document.getElementById("restoreDampVal").textContent = Number(restoreDampSlider.value).toFixed(1);
+    rstSlider.oninput = () => document.getElementById("rstVal").textContent = Number(rstSlider.value).toFixed(1) + "s";
+
+    // =========================================================================
+    // 1. 물체별 고유 물리 스펙, 개별 크기(Size)·말랑함(Softness)·진폭(Amplitude) 저장 캐시 & 본 카르만 진동 캐시
+    // =========================================================================
+    // 폴더 내 image-removebg-preview.png (256x256 RGBA PNG 정규화 내장 Base64 — VTS customDataBase64 및 캔버스 즉시 구동)
+    const BUILTIN_CHEESE_BASE64 = "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";
+    const BUILTIN_CHEESE_DATA_URL = "data:image/png;base64," + BUILTIN_CHEESE_BASE64;
+    const builtinCheeseImg = new Image();
+    builtinCheeseImg.src = BUILTIN_CHEESE_DATA_URL;
+
+    const ITEM_PHYSICS_SPECS = {
+      "image-removebg-preview.png": {
+        label: "치즈 (image-removebg-preview)",
+        mass: 0.24,
+        restitution: 0.22,
+        size: 0.16,
+        radius: 0.095,
+        defaultSoftness: 0.65,
+        defaultAmplitude: 0.35,
+        intrinsicSoftness: 1.05,
+        colorFill: "rgba(250, 204, 21, 0.78)",
+        colorStroke: "#fde047",
+        isCustomUpload: true,
+        nativeFileName: "image-removebg-preview.png",
+        vtsFileName: "image-removebg-preview.png",
+        customDataBase64: BUILTIN_CHEESE_BASE64,
+        previewUrl: BUILTIN_CHEESE_DATA_URL,
+        imgElement: builtinCheeseImg
+      },
+      "beverage_Bepis (@7MDigital).png": {
+        label: "Bepis 캔",
+        mass: 0.38,
+        restitution: 0.32,
+        size: 0.16,
+        radius: 0.095,
+        defaultSoftness: 0.45,
+        defaultAmplitude: 0.28,
+        intrinsicSoftness: 0.90,
+        colorFill: "rgba(59, 130, 246, 0.72)",
+        colorStroke: "#93c5fd"
+      },
+      "beverage_7Bull (@7MDigital).png": {
+        label: "7Bull 캔",
+        mass: 0.50,
+        restitution: 0.35,
+        size: 0.17,
+        radius: 0.102,
+        defaultSoftness: 0.35,
+        defaultAmplitude: 0.24,
+        intrinsicSoftness: 0.85,
+        colorFill: "rgba(99, 102, 241, 0.72)",
+        colorStroke: "#c7d2fe"
+      },
+      "bread (@denchisoft).png": {
+        label: "식빵",
+        mass: 0.18,
+        restitution: 0.18,
+        size: 0.16,
+        radius: 0.092,
+        defaultSoftness: 0.80,
+        defaultAmplitude: 0.42,
+        intrinsicSoftness: 1.20,
+        colorFill: "rgba(245, 158, 11, 0.76)",
+        colorStroke: "#fde68a"
+      },
+      "egg (by @denchisoft).png": {
+        label: "달걀",
+        mass: 0.06,
+        restitution: 0.12,
+        size: 0.13,
+        radius: 0.072,
+        defaultSoftness: 0.60,
+        defaultAmplitude: 0.34,
+        intrinsicSoftness: 1.00,
+        colorFill: "rgba(248, 250, 252, 0.80)",
+        colorStroke: "#fde047"
+      }
+    };
+    const THROWABLE_ITEMS = Object.keys(ITEM_PHYSICS_SPECS);
+
+    /**
+     * 물체별로 크기(Size, 0.05 ~ 0.50), 말랑하고 단단한 정도(0.00 = 강체 모드 ~ 1.00 = 최대 말랑함),
+     * 진동 진폭(A, 0.05 ~ 0.75)을 개별 저장하는 캐시
+     */
+    window.perObjectSizeCache = {};
+    window.perObjectSoftnessCache = {};
+    window.perObjectAmplitudeCache = {};
+    for (const [fn, spec] of Object.entries(ITEM_PHYSICS_SPECS)) {
+      window.perObjectSizeCache[fn] = spec.size;
+      window.perObjectSoftnessCache[fn] = spec.defaultSoftness;
+      window.perObjectAmplitudeCache[fn] = spec.defaultAmplitude;
+    }
+
+    function formatSoftnessLabel(val) {
+      const num = Number(val);
+      return num <= 0.001 ? "0.00 (강체)" : num.toFixed(2);
+    }
+
+    function updateSizeSliderLabel(sizeVal, fileName = null) {
+      const baseSize = (fileName && ITEM_PHYSICS_SPECS[fileName]?.size) ? ITEM_PHYSICS_SPECS[fileName].size : 0.16;
+      const pct = Math.round((sizeVal / Math.max(0.01, baseSize)) * 100);
+      const sizeValEl = document.getElementById("sizeVal");
+      if (sizeValEl) {
+        sizeValEl.textContent = `${sizeVal.toFixed(2)} (${pct}%)`;
+      }
+    }
+
+    /**
+     * 단단한 물체(s가 작을수록)일수록 변형 저항(강성 k_lin)이 커져 실제 진동 진폭(A_eff)이 줄어들도록 감쇠 계산:
+     * - 강체 모드(s <= 0.001): 진폭 0.0
+     * - 말랑함 s (0 < s <= 1): 유저 슬라이더 설정 진폭(userAmp)에 s^1.20 강성 감쇠 계수를 곱해
+     *   단단한 물체일수록 진동 진폭이 현저히 작아지고, 말랑한 물체일수록 설정 진폭에 가까워짐
+     */
+    function computeHardnessScaledAmplitude(userAmp, effectiveSoftness, normalSpeed = 2.0) {
+      if (effectiveSoftness <= 0.001) return 0.0;
+      const s = Math.max(0.04, Math.min(0.98, effectiveSoftness));
+      const hardnessAttenuation = Math.pow(s, 1.20);
+      const speedFactor = Math.max(0.80, Math.min(1.25, 0.78 + 0.11 * Math.abs(normalSpeed)));
+      return Math.max(0.006, Math.min(0.75, userAmp * hardnessAttenuation * speedFactor));
+    }
+
+    function updateAmpSliderLabel(rawAmpVal, rawSoftnessVal, fileName = null) {
+      const spec = fileName && ITEM_PHYSICS_SPECS[fileName] ? ITEM_PHYSICS_SPECS[fileName] : { intrinsicSoftness: 1.0 };
+      const effS = rawSoftnessVal <= 0.001 ? 0.0 : Math.max(0.04, Math.min(0.98, rawSoftnessVal * (spec.intrinsicSoftness || 1.0)));
+      const effA = computeHardnessScaledAmplitude(rawAmpVal, effS, 2.0);
+      document.getElementById("ampVal").textContent = effS <= 0.001
+        ? `${rawAmpVal.toFixed(2)} (강체 0)`
+        : `${rawAmpVal.toFixed(2)} (유효 ${effA.toFixed(2)})`;
+    }
+
+    function syncSoftnessSliderFromItemSelect() {
+      const sel = itemSelect.value;
+
+      let curSize = parseFloat(sizeSlider.value) || 0.16;
+      if (sel !== "random" && window.perObjectSizeCache[sel] !== undefined) {
+        curSize = window.perObjectSizeCache[sel];
+        sizeSlider.value = curSize.toFixed(2);
+      }
+      updateSizeSliderLabel(curSize, sel !== "random" ? sel : null);
+
+      let curS = parseFloat(softnessSlider.value) || 0.0;
+      if (sel !== "random" && window.perObjectSoftnessCache[sel] !== undefined) {
+        curS = window.perObjectSoftnessCache[sel];
+        softnessSlider.value = curS.toFixed(2);
+      }
+      document.getElementById("softnessVal").textContent = formatSoftnessLabel(curS);
+
+      let curA = parseFloat(ampSlider.value) || 0.30;
+      if (sel !== "random" && window.perObjectAmplitudeCache[sel] !== undefined) {
+        curA = window.perObjectAmplitudeCache[sel];
+        ampSlider.value = curA.toFixed(2);
+      }
+      updateAmpSliderLabel(curA, curS, sel !== "random" ? sel : null);
+      updateCustomUploadPreviewSelection();
+      updateVibrationCacheHUD();
+    }
+
+    itemSelect.onchange = () => {
+      syncSoftnessSliderFromItemSelect();
+    };
+
+    sizeSlider.oninput = () => {
+      const szVal = Math.max(0.05, Math.min(0.50, parseFloat(sizeSlider.value) || 0.16));
+      const sel = itemSelect.value;
+      if (sel === "random") {
+        for (const fn of THROWABLE_ITEMS) {
+          window.perObjectSizeCache[fn] = szVal;
+        }
+      } else {
+        window.perObjectSizeCache[sel] = szVal;
+      }
+      updateSizeSliderLabel(szVal, sel !== "random" ? sel : null);
+
+      // 현재 비행 중이거나 바닥에 적층된 오브젝트의 크기 및 물리 반경도 실시간 동기화
+      if (typeof projectiles !== "undefined" && Array.isArray(projectiles)) {
+        for (const p of projectiles) {
+          if (sel === "random" || p.fileName === sel) {
+            const baseSpec = ITEM_PHYSICS_SPECS[p.fileName] || { size: 0.16, radius: 0.095 };
+            const scaleRatio = szVal / Math.max(0.01, baseSpec.size || 0.16);
+            p.size = szVal;
+            p.radius = (baseSpec.radius || 0.095) * scaleRatio * (p.isPile ? 1.08 : 1.0);
+          }
+        }
+      }
+      updateVibrationCacheHUD();
+    };
+
+    softnessSlider.oninput = () => {
+      const sVal = Math.max(0.0, Math.min(1.0, parseFloat(softnessSlider.value) || 0.0));
+      document.getElementById("softnessVal").textContent = formatSoftnessLabel(sVal);
+      const sel = itemSelect.value;
+      if (sel === "random") {
+        for (const fn of THROWABLE_ITEMS) {
+          window.perObjectSoftnessCache[fn] = sVal;
+        }
+      } else {
+        window.perObjectSoftnessCache[sel] = sVal;
+      }
+      const curA = parseFloat(ampSlider.value) || 0.30;
+      updateAmpSliderLabel(curA, sVal, sel !== "random" ? sel : null);
+      updateVibrationCacheHUD();
+    };
+
+    ampSlider.oninput = () => {
+      const aVal = Math.max(0.05, Math.min(0.75, parseFloat(ampSlider.value) || 0.30));
+      const sel = itemSelect.value;
+      if (sel === "random") {
+        for (const fn of THROWABLE_ITEMS) {
+          window.perObjectAmplitudeCache[fn] = aVal;
+        }
+      } else {
+        window.perObjectAmplitudeCache[sel] = aVal;
+      }
+      const curS = parseFloat(softnessSlider.value) || 0.0;
+      updateAmpSliderLabel(aVal, curS, sel !== "random" ? sel : null);
+      updateVibrationCacheHUD();
+    };
+
+    // =========================================================================
+    // 1-2. 사용자 커스텀 투척 물체 사진 업로드 처리 (VTS Base64 아이템 & 캔버스 동기화)
+    // =========================================================================
+    let customUploadCounter = 1;
+    const customImgInput = document.getElementById("customImgInput");
+    const customUploadPreviewRow = document.getElementById("customUploadPreviewRow");
+
+    function updateCustomUploadPreviewSelection() {
+      if (!customUploadPreviewRow) return;
+      const badges = customUploadPreviewRow.querySelectorAll("[data-item-key]");
+      badges.forEach(el => {
+        const isSelected = el.getAttribute("data-item-key") === itemSelect.value;
+        el.style.borderColor = isSelected ? "#34d399" : "rgba(148, 163, 184, 0.35)";
+        el.style.background = isSelected ? "rgba(16, 185, 129, 0.22)" : "rgba(15, 23, 42, 0.78)";
+      });
+    }
+
+    function upsertCustomPreviewChip(itemKey, shortLabel, previewUrl) {
+      if (!customUploadPreviewRow) return;
+      customUploadPreviewRow.style.display = "flex";
+      let chip = customUploadPreviewRow.querySelector(`[data-item-key="${CSS.escape(itemKey)}"]`);
+      if (!chip) {
+        chip = document.createElement("div");
+        chip.setAttribute("data-item-key", itemKey);
+        chip.style.cssText = "display:flex; align-items:center; gap:5px; padding:3px 7px; border-radius:6px; border:1px solid rgba(148,163,184,0.35); background:rgba(15,23,42,0.78); cursor:pointer; font-size:11px; color:#e2e8f0;";
+        chip.onclick = () => {
+          itemSelect.value = itemKey;
+          syncSoftnessSliderFromItemSelect();
+        };
+        customUploadPreviewRow.appendChild(chip);
+      }
+      chip.innerHTML = `<img src="${previewUrl}" style="width:20px; height:20px; object-fit:contain; border-radius:3px; background:rgba(255,255,255,0.08);" /><span>${shortLabel}</span>`;
+      updateCustomUploadPreviewSelection();
+    }
+
+    // 기본 내장된 image-removebg-preview.png (치즈 조각) 미리보기 칩 즉시 등록
+    upsertCustomPreviewChip("image-removebg-preview.png", "image-removebg-preview", BUILTIN_CHEESE_DATA_URL);
+
+    /**
+     * VTube Studio customDataBase64 전용 파일명 정규화 (errorID 757 완벽 방지):
+     * - VTS 규격: 영문/숫자/하이픈(-)만 허용 (언더스코어 '_' 및 공백 불가)
+     * - 반드시 .png 또는 .jpg로 끝나야 하며 전체 길이가 8~32자 사이여야 함
+     */
+    function buildValidVtsCustomFileName(rawName, idx = 1) {
+      const cleanBase = String(rawName || "")
+        .replace(/\.[^/.]+$/, "")
+        .replace(/[^a-zA-Z0-9-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .toLowerCase();
+      if (cleanBase === "image-removebg-preview") {
+        return "image-removebg-preview.png"; // 26자 (VTS 규격 8~32자 및 하이픈 규칙 부합)
+      }
+      const shortSlug = (cleanBase || `img${idx}`).slice(0, 14).replace(/-$/g, "");
+      const stem = `custom-${idx}-${shortSlug || "item"}`;
+      return `${stem}.png`;
+    }
+
+    function normalizeUploadedImageToVTSBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("파일 읽기 실패"));
+        reader.onload = () => {
+          const rawDataUrl = reader.result;
+          const img = new Image();
+          img.onerror = () => reject(new Error("이미지 디코딩 실패"));
+          img.onload = () => {
+            // VTube Studio customDataBase64 규격(64~2048px, .png/.jpg 확장자 필수)에 맞추어 256x256 투명 정사각 PNG로 정규화
+            const targetSize = 256;
+            const offCanvas = document.createElement("canvas");
+            offCanvas.width = targetSize;
+            offCanvas.height = targetSize;
+            const offCtx = offCanvas.getContext("2d");
+            offCtx.clearRect(0, 0, targetSize, targetSize);
+
+            const scale = Math.min(targetSize / Math.max(1, img.naturalWidth), targetSize / Math.max(1, img.naturalHeight));
+            const drawW = Math.max(1, Math.round(img.naturalWidth * scale));
+            const drawH = Math.max(1, Math.round(img.naturalHeight * scale));
+            const dx = Math.round((targetSize - drawW) * 0.5);
+            const dy = Math.round((targetSize - drawH) * 0.5);
+            offCtx.drawImage(img, dx, dy, drawW, drawH);
+
+            const pngDataUrl = offCanvas.toDataURL("image/png");
+            const base64 = pngDataUrl.split(",")[1];
+            const normImg = new Image();
+            normImg.onload = () => {
+              resolve({
+                base64,
+                previewUrl: pngDataUrl,
+                imgElement: normImg,
+                ext: "png"
+              });
+            };
+            normImg.onerror = () => {
+              resolve({
+                base64,
+                previewUrl: pngDataUrl,
+                imgElement: img,
+                ext: "png"
+              });
+            };
+            normImg.src = pngDataUrl;
+          };
+          img.src = rawDataUrl;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    if (customImgInput) {
+      customImgInput.addEventListener("change", async (ev) => {
+        const files = Array.from(ev.target.files || []);
+        if (files.length === 0) return;
+
+        let lastAddedKey = null;
+        for (const file of files) {
+          try {
+            const { base64, previewUrl, imgElement } = await normalizeUploadedImageToVTSBase64(file);
+            const rawBaseName = file.name.replace(/\.[^/.]+$/, "");
+            const isBuiltinCheeseFile = /^image[-_ ]?removebg[-_ ]?preview$/i.test(rawBaseName.trim());
+
+            const curSize = Math.max(0.05, Math.min(0.50, parseFloat(sizeSlider.value) || 0.16));
+            const curSoftness = Math.max(0.0, Math.min(1.0, parseFloat(softnessSlider.value) || 0.65));
+            const curAmp = Math.max(0.05, Math.min(0.75, parseFloat(ampSlider.value) || 0.35));
+
+            if (isBuiltinCheeseFile) {
+              const itemKey = "image-removebg-preview.png";
+              ITEM_PHYSICS_SPECS[itemKey] = {
+                ...ITEM_PHYSICS_SPECS[itemKey],
+                label: "치즈 (image-removebg-preview)",
+                size: curSize,
+                radius: 0.095 * (curSize / 0.16),
+                defaultSoftness: curSoftness,
+                defaultAmplitude: curAmp,
+                isCustomUpload: true,
+                nativeFileName: "image-removebg-preview.png",
+                vtsFileName: "image-removebg-preview.png",
+                customDataBase64: base64,
+                previewUrl,
+                imgElement
+              };
+              window.perObjectSizeCache[itemKey] = curSize;
+              window.perObjectSoftnessCache[itemKey] = curSoftness;
+              window.perObjectAmplitudeCache[itemKey] = curAmp;
+              upsertCustomPreviewChip(itemKey, "image-removebg-preview", previewUrl);
+              lastAddedKey = itemKey;
+              continue;
+            }
+
+            const idx = customUploadCounter++;
+            const vtsFileName = buildValidVtsCustomFileName(rawBaseName, idx);
+            const itemKey = vtsFileName;
+            const shortLabel = rawBaseName.slice(0, 16) || `커스텀 #${idx}`;
+
+            ITEM_PHYSICS_SPECS[itemKey] = {
+              label: shortLabel,
+              mass: 0.35,
+              restitution: 0.30,
+              size: curSize,
+              radius: 0.095,
+              defaultSoftness: curSoftness,
+              defaultAmplitude: curAmp,
+              intrinsicSoftness: 1.00,
+              colorFill: "rgba(16, 185, 129, 0.72)",
+              colorStroke: "#6ee7b7",
+              isCustomUpload: true,
+              nativeFileName: file.name,
+              vtsFileName,
+              customDataBase64: base64,
+              previewUrl,
+              imgElement
+            };
+            if (!THROWABLE_ITEMS.includes(itemKey)) {
+              THROWABLE_ITEMS.push(itemKey);
+            }
+            window.perObjectSizeCache[itemKey] = curSize;
+            window.perObjectSoftnessCache[itemKey] = curSoftness;
+            window.perObjectAmplitudeCache[itemKey] = curAmp;
+
+            // 드롭다운(itemSelect)에 추가 ('random' 옵션 바로 앞에 삽입)
+            const opt = document.createElement("option");
+            opt.value = itemKey;
+            opt.textContent = `📷 [업로드] ${shortLabel} (0.35 kg)`;
+            const randomOpt = itemSelect.querySelector('option[value="random"]');
+            if (randomOpt) {
+              itemSelect.insertBefore(opt, randomOpt);
+            } else {
+              itemSelect.appendChild(opt);
+            }
+
+            upsertCustomPreviewChip(itemKey, shortLabel, previewUrl);
+            lastAddedKey = itemKey;
+          } catch (err) {
+            console.error("커스텀 이미지 업로드 처리 오류:", err);
+          }
+        }
+
+        if (lastAddedKey) {
+          itemSelect.value = lastAddedKey;
+          syncSoftnessSliderFromItemSelect();
+          const statusEl = document.getElementById("statusText");
+          if (statusEl) {
+            const spec = ITEM_PHYSICS_SPECS[lastAddedKey];
+            statusEl.textContent = `📷 커스텀 사진 준비 완료: ${spec ? spec.label : lastAddedKey}`;
+          }
+        }
+        customImgInput.value = "";
+      });
+    }
+
+    function getObjectStoredSize(fileName) {
+      if (window.perObjectSizeCache[fileName] !== undefined) {
+        return window.perObjectSizeCache[fileName];
+      }
+      return parseFloat(sizeSlider.value) || 0.16;
+    }
+
+    function getObjectStoredSoftness(fileName) {
+      if (window.perObjectSoftnessCache[fileName] !== undefined) {
+        return window.perObjectSoftnessCache[fileName];
+      }
+      return parseFloat(softnessSlider.value) || 0.0;
+    }
+
+    function getObjectStoredAmplitude(fileName) {
+      if (window.perObjectAmplitudeCache[fileName] !== undefined) {
+        return window.perObjectAmplitudeCache[fileName];
+      }
+      return parseFloat(ampSlider.value) || 0.30;
+    }
+
+    function getItemSpec(fileName) {
+      const base = ITEM_PHYSICS_SPECS[fileName] || {
+        label: "오브젝트",
+        mass: 0.35,
+        restitution: 0.30,
+        size: 0.16,
+        radius: 0.095,
+        defaultSoftness: 0.45,
+        defaultAmplitude: 0.30,
+        intrinsicSoftness: 1.0,
+        colorFill: "rgba(99, 102, 241, 0.70)",
+        colorStroke: "#c7d2fe"
+      };
+      const massMult = parseFloat(massSlider.value) || 1.0;
+      const userSize = Math.max(0.05, Math.min(0.50, getObjectStoredSize(fileName)));
+      const baseSize = base.size || 0.16;
+      const sizeScale = userSize / Math.max(0.01, baseSize);
+      const scaledRadius = (base.radius || 0.095) * sizeScale;
+
+      const rawUserSoftness = getObjectStoredSoftness(fileName);
+      const rawUserAmplitude = getObjectStoredAmplitude(fileName);
+      const twistStrengthDeg = parseFloat(twistSlider.value) ?? 14.0;
+      // 슬라이더 최하단(0.00)일 때는 강체 모드(isRigidMode = true)로 설정하여 변형 애니메이션을 완전히 비활성화
+      const isRigidMode = rawUserSoftness <= 0.001;
+      const effectiveSoftness = isRigidMode
+        ? 0.0
+        : Math.max(0.04, Math.min(0.98, rawUserSoftness * base.intrinsicSoftness));
+
+      return {
+        label: base.label,
+        mass: base.mass * massMult,
+        restitution: base.restitution,
+        baseRestitution: base.restitution,
+        size: userSize,
+        radius: scaledRadius,
+        userSoftness: rawUserSoftness,
+        userAmplitude: rawUserAmplitude,
+        twistStrengthDeg,
+        softness: effectiveSoftness,
+        isRigidMode,
+        colorFill: base.colorFill,
+        colorStroke: base.colorStroke,
+        isCustomUpload: Boolean(base.isCustomUpload),
+        nativeFileName: base.nativeFileName || null,
+        vtsFileName: base.vtsFileName || buildValidVtsCustomFileName(fileName, 1),
+        customDataBase64: base.customDataBase64 || null,
+        imgElement: base.imgElement || null
+      };
+    }
+
+    /**
+     * 물체마다 충돌 시 산출되는 본 카르만(von Kármán) 타원 압축 진동 특성(주파수, 진폭)을 저장하는
+     * 휘발성 인메모리 캐시 (창을 껐다 켜면 초기화됨).
+     */
+    window.objectVibrationCache = {
+      byItem: {},
+      byInstance: {},
+      lastHitInstanceID: null
+    };
+
+    /**
+     * 반주기 접촉 페이즈(u = τ / T_half ∈ [0, 1]) 동안 물체가 법선 방향(n)으로
+     * 진동 진폭(A * R_0)만큼 들어갔다 나오는 1D 클램프드 3차 B-Spline 곡선 기저 함수:
+     * - 노트 벡터 U = [0, 0, 0, 0, 0.5, 1, 1, 1, 1]
+     * - 제어점 P = [0.0, 0.8, 1.2, 0.8, 0.0]
+     * - 경계 조건: B(0) = 0 (충돌 시작), B(0.5) = 1.0 (최대 법선 침투/압축), B(1) = 0 (반주기 복원 및 이탈)
+     */
+    function evaluateBSplineNormalIndentation(u) {
+      if (u <= 0.0 || u >= 1.0) return 0.0;
+      const s = u <= 0.5 ? (2.0 * u) : (2.0 * (1.0 - u));
+      const invS = 1.0 - s;
+      // 2-span clamped cubic B-Spline basis functions N_{1,3}(s), N_{2,3}(s), N_{3,3}(s)
+      const n1 = 3.0 * s * invS * invS + 0.75 * s * s * invS + 0.25 * s * s * s;
+      const n2 = 1.5 * s * s * invS + 0.5 * s * s * s;
+      const n3 = 0.25 * s * s * s;
+      // Control points P1 = 0.8, P2 = 1.2, P3 = 0.8 -> peak at u=0.5 (s=1) is 0.8*0.25 + 1.2*0.5 + 0.8*0.25 = 1.0
+      return 0.8 * n1 + 1.2 * n2 + 0.8 * n3;
+    }
+
+    /**
+     * 질량 m, 말랑함 s, 유저 설정 진동 진폭 A0(ampSlider), 법선 충돌 속도 v_n으로부터
+     * 본 카르만 비선형 변형 모델 파라미터 산출:
+     * - 진폭 A: 단단한 물체(s가 작을수록)일수록 변형 저항(강성 k_lin)이 커져 진동 진폭이 s^1.2 비례로 감소
+     * - 비선형 고유진동수 f (ω = ω_0 sqrt(1 + 3/4 β_vK A^2)), 반주기 T_half = 1 / (2f)
+     * - 유효 반발계수 e_eff: 말랑할수록 변형 에너지 소산에 의해 튕겨나오는 속도가 감쇠됨
+     */
+    function computeVonKarmanParams(p, normalSpeed) {
+      const m = Math.max(0.02, p.mass || 0.38);
+      const vn = Math.max(0.12, Math.abs(normalSpeed));
+      const e0 = p.baseRestitution ?? p.restitution ?? 0.30;
+
+      if (p.isRigidMode || (p.softness ?? 0) <= 0.001) {
+        return {
+          isRigidMode: true,
+          m,
+          s: 0.0,
+          vn,
+          kLin: Infinity,
+          betaVK: 0.0,
+          amplitude: 0.0,
+          frequencyHz: 0.0,
+          angularFreq: 0.0,
+          halfPeriodSec: 0.0,
+          dampingRate: 0.0,
+          eEff: e0,
+          contactTime: 0.0
+        };
+      }
+
+      const s = Math.max(0.04, Math.min(0.98, p.softness));
+
+      // 1) 선형 탄성 계수 k_lin(s) 및 본 카르만 기하학적 비선형 결합 계수 β_vK(s)
+      const kLin = 78.0 * Math.pow(1.12 - 0.82 * s, 2) / s;
+      const betaVK = 0.65 + 1.55 * s;
+
+      // 2) 진동 진폭 A: 유저 슬라이더(#ampSlider) 기준 진폭에 단단함 감쇠(s^1.20)를 반영하여 단단한 물체일수록 진폭 감소
+      const userAmp = p.userAmplitude ?? getObjectStoredAmplitude(p.fileName);
+      const amplitude = computeHardnessScaledAmplitude(userAmp, s, vn);
+
+      // 3) 본 카르만-더핑(von Kármán-Duffing) 비선형 고유진동수 f 및 반주기 T_half = 1 / (2f)
+      const omega0 = Math.sqrt(kLin / m);
+      const omegaRaw = omega0 * Math.sqrt(1.0 + 0.75 * betaVK * amplitude * amplitude);
+      const frequencyHz = Math.max(3.2, Math.min(15.5, omegaRaw / (2.0 * Math.PI)));
+      const angularFreq = 2.0 * Math.PI * frequencyHz;
+      const halfPeriodSec = 0.5 / frequencyHz;
+
+      // 4) 감쇠율 및 비탄성 반발계수 e_eff
+      const dampingRate = 1.65 + 2.40 * (1.0 - 0.65 * s);
+      const eEff = Math.max(0.015, Math.min(0.88,
+        e0 * Math.pow(Math.max(0.02, 1.0 - 0.85 * s), 1.2) / (1.0 + 0.9 * betaVK * amplitude)
+      ));
+
+      return {
+        isRigidMode: false,
+        m,
+        s,
+        vn,
+        kLin,
+        betaVK,
+        amplitude,
+        frequencyHz,
+        angularFreq,
+        halfPeriodSec,
+        dampingRate,
+        eEff,
+        contactTime: halfPeriodSec
+      };
+    }
+
+    /**
+     * 물체 충돌 시 본 카르만 비선형 변형 가정(ε_nn = ∂u_n/∂n + 1/2*(∂w/∂n)^2)에 따른
+     * 타원 진동 특성(주파수 f, 반주기 T_half, 진폭 A)을 계산하고 물체별 캐시에 저장.
+     * 강체 모드(softness = 0.00)일 때는 진동 상태를 생성하지 않고 즉시 반환.
+     */
+    function computeAndCacheVonKarmanVibration(p, outNx, outNy, normalSpeed, nowSec) {
+      if (p.isRigidMode || (p.softness ?? 0) <= 0.001) {
+        p.vkState = null;
+        p.contact = null;
+        return null;
+      }
+
+      const r = computeVonKarmanParams(p, normalSpeed);
+      const { m, s, vn, betaVK, amplitude, frequencyHz, angularFreq, halfPeriodSec, dampingRate } = r;
+      const contactAngleRad = Math.atan2(outNy, outNx);
+
+      const vibEntry = {
+        instanceID: p.instanceID,
+        fileName: p.fileName,
+        label: p.label || p.fileName,
+        frequencyHz: Number(frequencyHz.toFixed(2)),
+        angularFreq: Number(angularFreq.toFixed(2)),
+        halfPeriodSec: Number(halfPeriodSec.toFixed(4)),
+        amplitude: Number(amplitude.toFixed(3)),
+        softness: Number((p.userSoftness ?? s).toFixed(2)),
+        effectiveSoftness: Number(s.toFixed(2)),
+        massKg: Number(m.toFixed(2)),
+        impactSpeed: Number(vn.toFixed(2)),
+        vonKarmanBeta: Number(betaVK.toFixed(3)),
+        dampingRate: Number(dampingRate.toFixed(2)),
+        effectiveRestitution: Number(r.eEff.toFixed(3)),
+        contactTimeSec: Number(halfPeriodSec.toFixed(3)),
+        outNx,
+        outNy,
+        contactAngleRad,
+        t0: nowSec
+      };
+
+      window.objectVibrationCache.byItem[p.fileName] = vibEntry;
+      if (p.instanceID) {
+        window.objectVibrationCache.byInstance[p.instanceID] = vibEntry;
+        window.objectVibrationCache.lastHitInstanceID = p.instanceID;
+      }
+
+      p.vkState = { ...vibEntry };
+      updateVibrationCacheHUD();
+      return p.vkState;
+    }
+
+    /**
+     * 본 카르만 비선형 변형 가정(ε_nn = ∂u_n/∂n + 1/2*(∂w/∂n)^2)에 따른 타원 변형 평가:
+     * 1) 강체 모드(isRigidMode): 즉시 비활성 반환 (오버헤드 0, 변형 미처리)
+     * 2) 반주기(0 <= τ <= T_half = 1/(2f), 법선축 압축 페이즈):
+     *    - 물체가 표면에 달라붙어 있으면서 1D B-Spline 곡선 B(u)를 따라 법선축 압축(λ_n < 1) 및 접선축 팽창(λ_t > 1)
+     *    - 물체 위치는 법선 방향으로 진동 진폭(A * R_0)만큼 들어갔다 나오는 B-Spline 변위를 따름
+     * 3) 반주기 이후(τ > T_half, 표면 이탈 및 법선축 팽창 페이즈):
+     *    - 표면에서 떨어져 나오며 법선축 팽창(λ_n > 1) ↔ 압축(λ_n < 1) 감쇠 자유 진동 수행
+     * 4) VTS 화면 내 시각화:
+     *    - 충돌면 법선 각도(θ_n)와 물체 스프라이트 각도(θ_s) 사이의 상대각(Δθ = θ_s - θ_n)을 따라 투영 단면 크기(vtsProjectedScale) 신축
+     *    - 상대각에 따른 회전 비틀림 각도 요동(vtsTwistDeg, #twistSlider 연동) 산출
+     */
+    function evaluateVonKarmanEllipticDeformation(p, nowSec) {
+      if (p.isRigidMode || (p.softness ?? 0) <= 0.001 || !p.vkState) {
+        return {
+          active: false,
+          inContactPhase: false,
+          lambdaN: 1.0,
+          lambdaT: 1.0,
+          q: 0.0,
+          shiftX: 0.0,
+          shiftY: 0.0,
+          bsplineIndent: 0.0,
+          vtsSize: p.size,
+          vtsRot: (p.rot + 360) % 360
+        };
+      }
+
+      const vk = p.vkState;
+      const elapsed = nowSec - vk.t0;
+      if (elapsed < 0 || elapsed > 2.8) {
+        return {
+          active: false,
+          inContactPhase: false,
+          lambdaN: 1.0,
+          lambdaT: 1.0,
+          q: 0.0,
+          shiftX: 0.0,
+          shiftY: 0.0,
+          bsplineIndent: 0.0,
+          vtsSize: p.size,
+          vtsRot: (p.rot + 360) % 360
+        };
+      }
+
+      const halfT = Math.max(0.025, vk.halfPeriodSec || (0.5 / vk.frequencyHz));
+      let q = 0.0;
+      let bsplineVal = 0.0;
+      let inContactPhase = false;
+
+      if (elapsed <= halfT) {
+        // [페이즈 1] 반주기(0 <= τ <= T_half): 표면에 달라붙어 있는 법선축 압축(λ_n < 1) & 접선축 팽창(λ_t > 1) 페이즈
+        // B-Spline 기저 함수를 따라 0 -> A -> 0 으로 법선 압축 및 법선 위치 침투 진행
+        inContactPhase = true;
+        const u = Math.max(0.0, Math.min(1.0, elapsed / halfT));
+        bsplineVal = evaluateBSplineNormalIndentation(u);
+        q = vk.amplitude * bsplineVal;
+      } else {
+        // [페이즈 2] 반주기 이후(τ > T_half): 표면에서 떨어져 나오는 법선축 팽창(q < 0 => λ_n > 1) 및 감쇠 자유 진동 페이즈
+        const freeT = elapsed - halfT;
+        const env = Math.exp(-vk.dampingRate * freeT);
+        const instAmp = vk.amplitude * env;
+        if (instAmp < 0.005) {
+          return {
+            active: false,
+            inContactPhase: false,
+            lambdaN: 1.0,
+            lambdaT: 1.0,
+            q: 0.0,
+            shiftX: 0.0,
+            shiftY: 0.0,
+            bsplineIndent: 0.0,
+            vtsSize: p.size,
+            vtsRot: (p.rot + 360) % 360
+          };
+        }
+        // 이탈 직후(freeT > 0) 음(-)의 부호로 시작하여 법선축 팽창(λ_n = 1 - q > 1) ↔ 압축 감쇠 진동
+        q = -instAmp * Math.sin(vk.angularFreq * freeT);
+      }
+
+      // 법선축(충돌축) 신축비 λ_n: 반주기 접촉 중에는 압축(λ_n < 1), 이탈 직후에는 팽창(λ_n > 1)
+      const lambdaN = Math.max(0.28, Math.min(1.55, 1.0 - q));
+
+      // 접선축(충돌면 평행 직교축) 신축비 λ_t: 본 카르만 비선형 타원 팽창/수축비
+      const lambdaT = Math.max(0.50, Math.min(1.85, (1.0 / Math.sqrt(lambdaN)) + 0.38 * vk.vonKarmanBeta * q * q));
+
+      // 충돌 법선축(outNx, outNy)을 따라 진동하는 중심 변위 (shiftX, shiftY):
+      // 반주기 부착 중(p.contact 활성)에는 updateProjectileContactPhase에서 p.x, p.y에 이미 B-Spline 법선 변위가 반영되어 있으므로 중복을 피하고,
+      // 이탈 후 자유 진동 중이거나 비부착 충돌 시에는 충돌 법선축(outNx, outNy) 방향으로 진동 변위(axisOscDisp)를 직접 가함
+      const r0 = p.radius || 0.095;
+      const axisOscDisp = -r0 * 1.85 * q;
+      const shiftX = (inContactPhase && p.contact) ? 0.0 : (axisOscDisp * vk.outNx);
+      const shiftY = (inContactPhase && p.contact) ? 0.0 : (axisOscDisp * vk.outNy);
+      const bsplineIndent = inContactPhase ? (vk.amplitude * r0 * 1.85 * bsplineVal) : 0.0;
+
+      // VTS 화면 내 충돌 후 아이템 애니메이션 동기화:
+      // 충돌면 법선 각도(normalAngle)와 물체 스프라이트 각도(bodyRotRad) 사이의 상대각(deltaPhi)에 따라
+      // 1) 투영 단면 크기(projRadiusRatio)는 상대각에 따른 기하학적 단면 비율만 완만히 반영(단순 크기 변조 지양)
+      // 2) 회전 비틀림 요동(affineShearDeg + twistStrength * q * sin(2*deltaPhi)) 및 충돌축 위치 진동(shiftX, shiftY)으로 타원 진동 표현
+      const normalAngle = (vk.outNx !== 0 || vk.outNy !== 0)
+        ? Math.atan2(vk.outNy, vk.outNx)
+        : Math.atan2(p.vy, p.vx || 1e-4);
+      const bodyRotRad = ((p.rot || 0) * Math.PI) / 180.0;
+      const deltaPhi = bodyRotRad - normalAngle;
+      const cosD = Math.cos(deltaPhi);
+      const sinD = Math.sin(deltaPhi);
+
+      const projRadiusRatio = Math.sqrt((lambdaN * cosD) * (lambdaN * cosD) + (lambdaT * sinD) * (lambdaT * sinD));
+      const vtsSize = Math.max(0.03, Math.min(0.85, p.size * (1.0 + 0.18 * (projRadiusRatio - 1.0))));
+
+      const twistStrength = p.twistStrengthDeg ?? (parseFloat(twistSlider.value) || 18.0);
+      const affineShearRad = Math.atan2((lambdaT - lambdaN) * sinD * cosD, lambdaN * cosD * cosD + lambdaT * sinD * sinD);
+      const affineShearDeg = (affineShearRad * 180.0) / Math.PI;
+      const vtsRot = (p.rot + affineShearDeg + twistStrength * q * Math.sin(2.0 * deltaPhi) + 360.0) % 360.0;
+
+      return {
+        active: true,
+        inContactPhase,
+        lambdaN,
+        lambdaT,
+        q,
+        shiftX,
+        shiftY,
+        bsplineVal,
+        bsplineIndent,
+        vtsSize,
+        vtsRot,
+        deltaPhi,
+        angleRad: normalAngle,
+        frequencyHz: vk.frequencyHz,
+        amplitude: vk.amplitude
+      };
+    }
+
+    function updateVibrationCacheHUD() {
+      const perItemSummary = THROWABLE_ITEMS.map(fn => {
+        const spec = ITEM_PHYSICS_SPECS[fn];
+        const szVal = getObjectStoredSize(fn);
+        const sVal = getObjectStoredSoftness(fn);
+        const aVal = getObjectStoredAmplitude(fn);
+        const effS = sVal <= 0.001 ? 0.0 : Math.max(0.04, Math.min(0.98, sVal * (spec.intrinsicSoftness || 1.0)));
+        const effA = computeHardnessScaledAmplitude(aVal, effS, 2.0);
+        return `${spec.label}: <strong>${sVal <= 0.001 ? `sz=${szVal.toFixed(2)}, 강체` : `sz=${szVal.toFixed(2)}, s=${sVal.toFixed(2)}, A=${effA.toFixed(2)}`}</strong>`;
+      }).join(" | ");
+
+      const entries = Object.values(window.objectVibrationCache.byItem);
+      if (entries.length === 0) {
+        vibCacheReadout.innerHTML =
+          `<strong>[물체별 크기(sz)·말랑함(s) & 본 카르만 진동 캐시]</strong><br/>` +
+          `개별 스펙: ${perItemSummary}<br/>` +
+          `단단할수록(s↓) 진동 진폭(A)이 감소하며, 충돌 시 f·T/2·A가 캐싱됩니다.`;
+        return;
+      }
+      const lines = entries.map(e =>
+        `• <strong>${e.label}</strong>: f <strong>${e.frequencyHz.toFixed(2)}Hz</strong> (T/2=${(e.halfPeriodSec * 1000).toFixed(0)}ms) | 유효A <strong>${e.amplitude.toFixed(3)}</strong> | e_eff ${e.effectiveRestitution.toFixed(2)} (s=${e.softness.toFixed(2)})`
+      );
+      vibCacheReadout.innerHTML =
+        `<strong>[물체별 크기(sz)·말랑함(s) & 본 카르만 진동 캐시]</strong><br/>` +
+        `개별 스펙: ${perItemSummary}<br/>` +
+        lines.join("<br/>");
+    }
+    syncSoftnessSliderFromItemSelect();
+
+    // =========================================================================
+    // 2. 바람에 흔들리는 String(진자/물리) 오브젝트 제외 실루엣 추출 & 캡슐 오프셋 캐시
+    // =========================================================================
+    const STRING_PHYSICS_MESH_REGEX = /(?:^|_)(?:hair_(?:middle|mid|left|right|back|over_shade)|back_hair|uh_(?:left|right|mid)|tie_(?:top|left|right|bottom|mid)|under_tie|skirt|under_boob_shadow|sign_|tears_)\d*/i;
+
+    function filterNonStringCoreArtMeshes(artMeshNames = [], live2dParams = []) {
+      const stringChainSuffixes = new Set();
+      for (const p of live2dParams) {
+        const name = p.name || "";
+        const m = name.match(/^Param_Angle_Rotation_\d+_(.+)$/i);
+        if (m && m[1]) {
+          stringChainSuffixes.add(m[1].toLowerCase());
+        }
+      }
+
+      const coreMeshes = [];
+      const excludedStringMeshes = [];
+
+      for (const meshName of artMeshNames) {
+        const lower = meshName.toLowerCase();
+        let isStringMesh = STRING_PHYSICS_MESH_REGEX.test(lower);
+        if (!isStringMesh) {
+          for (const suffix of stringChainSuffixes) {
+            if (lower.startsWith(suffix)) {
+              isStringMesh = true;
+              break;
+            }
+          }
+        }
+        if (isStringMesh) {
+          excludedStringMeshes.push(meshName);
+        } else {
+          coreMeshes.push(meshName);
+        }
+      }
+
+      return { coreMeshes, excludedStringMeshes };
+    }
+
+    /**
+     * 모델 기본 위치(positionX, positionY, size, rotation)로부터의 캡슐 상대 관계를 저장하는
+     * 휘발성 인메모리 캐시 (창을 껐다 켜면 기본값으로 날아감; 추후 플러그인 연동 시 파일 출력용 구조).
+     * - offsetX: 기본 모델 X 대비 로컬 중심 오프셋 (scale 정규화 단위)
+     * - offsetY: 기본 모델 Y 대비 로컬 중심 오프셋 (scale 정규화 단위, 기본 +0.08 = 정수리 +1.08 과 발끝 -0.92 의 중점)
+     * - length: 캡슐 전체 길이 (정수리 끝 ~ 발끝 총 길이, scale 정규화 단위, 기본 2.00)
+     * - radius: 캡슐 반경/두께 (scale 정규화 단위, 기본 0.135)
+     */
+    const DEFAULT_CAPSULE_RELATION = {
+      offsetX: 0.00,
+      offsetY: 0.08,
+      length: 2.00,
+      radius: 0.135
+    };
+
+    window.capsuleRelationCache = {
+      ...DEFAULT_CAPSULE_RELATION,
+      topEndpointLocalY: 1.08,
+      bottomEndpointLocalY: -0.92,
+      updatedAt: "default (volatile)"
+    };
+
+    // 전신 캡슐 히트박스 상태 객체
+    const capsuleHitBox = {
+      basePos: { positionX: 0.0, positionY: 0.0, size: -52.0, rotation: 0.0 },
+      centerX: 0.0,
+      centerY: 0.0,
+      scaleFactor: 1.0,
+      rotationDeg: 0.0,
+      ax: 0.0,           // 하단 캡 중심 X (발끝 방향)
+      ay: -0.785,        // 하단 캡 중심 Y (발끝 방향)
+      bx: 0.0,           // 상단 캡 중심 X (머리 정수리 방향)
+      by: 0.945,         // 상단 캡 중심 Y (머리 정수리 방향)
+      radius: 0.135,     // 코어 신체 캡슐 반경
+      coreMeshCount: 0,
+      excludedStringCount: 0,
+      hasFeetMesh: true,
+      netForceX: 0.0,
+      netForceY: 0.0,
+      smoothForceX: 0.0,
+      smoothForceY: 0.0
+    };
+
+    function computeFullBodyCapsuleFromModelPos(pos, customRel = null) {
+      if (pos) {
+        capsuleHitBox.basePos = {
+          positionX: Number(pos.positionX ?? 0.0),
+          positionY: Number(pos.positionY ?? 0.0),
+          size: Number(pos.size ?? -52.0),
+          rotation: Number(pos.rotation ?? 0.0)
+        };
+      }
+      const px = capsuleHitBox.basePos.positionX;
+      const py = capsuleHitBox.basePos.positionY;
+      const size = capsuleHitBox.basePos.size;
+      const rot = ((capsuleHitBox.basePos.rotation % 360.0) + 360.0) % 360.0;
+
+      const scale = Math.max(0.25, Math.min(3.5, Math.pow(2.0, (size + 52.0) / 23.5)));
+      const rad = (rot * Math.PI) / 180.0;
+      const cosR = Math.cos(rad);
+      const sinR = Math.sin(rad);
+
+      const rel = customRel || window.capsuleRelationCache || DEFAULT_CAPSULE_RELATION;
+      const normRadius = Math.max(0.03, Number(rel.radius ?? 0.135));
+      const normLength = Math.max(normRadius * 2.02, Number(rel.length ?? 2.00));
+      const normOffX = Number(rel.offsetX ?? 0.00);
+      const normOffY = Number(rel.offsetY ?? 0.08);
+
+      const capRadius = normRadius * scale;
+      const halfSpine = Math.max(0.005, 0.5 * normLength - normRadius) * scale;
+      const localCenterX = normOffX * scale;
+      const localCenterY = normOffY * scale;
+
+      const bottomCapLocalY = localCenterY - halfSpine;
+      const topCapLocalY = localCenterY + halfSpine;
+
+      // 로컬 오프셋 (localCenterX, bottomCapLocalY / topCapLocalY) -> VTS 월드 좌표 변환
+      const ax = px + (localCenterX * cosR - bottomCapLocalY * sinR);
+      const ay = py + (localCenterX * sinR + bottomCapLocalY * cosR);
+      const bx = px + (localCenterX * cosR - topCapLocalY * sinR);
+      const by = py + (localCenterX * sinR + topCapLocalY * cosR);
+
+      capsuleHitBox.centerX = 0.5 * (ax + bx);
+      capsuleHitBox.centerY = 0.5 * (ay + by);
+      capsuleHitBox.scaleFactor = scale;
+      capsuleHitBox.rotationDeg = rot;
+      capsuleHitBox.ax = ax;
+      capsuleHitBox.ay = ay;
+      capsuleHitBox.bx = bx;
+      capsuleHitBox.by = by;
+      capsuleHitBox.radius = capRadius;
+
+      return capsuleHitBox;
+    }
+
+    computeFullBodyCapsuleFromModelPos({ positionX: 0.0, positionY: 0.0, size: -52.0, rotation: 0.0 });
+
+    // =========================================================================
+    // 2-2. 히트박스 위치 조정 모달 팝업 (코어 실루엣 시각화 & 드래그/슬라이더 편집)
+    // =========================================================================
+    const hitboxModalBackdrop = document.getElementById("hitboxModalBackdrop");
+    const silCanvas = document.getElementById("silhouetteCanvas");
+    const silCtx = silCanvas.getContext("2d");
+    const capLenSlider = document.getElementById("capLenSlider");
+    const capRadSlider = document.getElementById("capRadSlider");
+    const capOffXSlider = document.getElementById("capOffXSlider");
+    const capOffYSlider = document.getElementById("capOffYSlider");
+    const capsuleCachePreview = document.getElementById("capsuleCachePreview");
+
+    let modalDraftRelation = { ...DEFAULT_CAPSULE_RELATION };
+    let savedBeforeModal = { ...DEFAULT_CAPSULE_RELATION };
+    let dragMode = null; // "center" | "top" | "bottom" | "radius" | null
+    let dragStartMouse = { x: 0, y: 0 };
+    let dragStartDraft = null;
+
+    // 실루엣 캔버스 좌표 변환: 모델 로컬 정규화 좌표 (lx, ly in [-1.25, +1.25]) <-> 캔버스 픽셀
+    const SIL_ORIGIN_X = 150;
+    const SIL_ORIGIN_Y = 205;
+    const SIL_PX_PER_UNIT = 145; // 1.0 로컬 스케일 단위당 픽셀 수
+
+    function localToSilPx(lx, ly) {
+      return {
+        x: SIL_ORIGIN_X + lx * SIL_PX_PER_UNIT,
+        y: SIL_ORIGIN_Y - ly * SIL_PX_PER_UNIT
+      };
+    }
+
+    function silPxToLocal(px, py) {
+      return {
+        lx: (px - SIL_ORIGIN_X) / SIL_PX_PER_UNIT,
+        ly: (SIL_ORIGIN_Y - py) / SIL_PX_PER_UNIT
+      };
+    }
+
+    function syncModalUIFromDraft() {
+      capLenSlider.value = modalDraftRelation.length.toFixed(2);
+      capRadSlider.value = modalDraftRelation.radius.toFixed(3);
+      capOffXSlider.value = modalDraftRelation.offsetX.toFixed(2);
+      capOffYSlider.value = modalDraftRelation.offsetY.toFixed(2);
+
+      document.getElementById("capLenVal").textContent = modalDraftRelation.length.toFixed(2);
+      document.getElementById("capRadVal").textContent = modalDraftRelation.radius.toFixed(3);
+      const sx = modalDraftRelation.offsetX >= 0 ? "+" : "";
+      const sy = modalDraftRelation.offsetY >= 0 ? "+" : "";
+      document.getElementById("capOffXVal").textContent = sx + modalDraftRelation.offsetX.toFixed(2);
+      document.getElementById("capOffYVal").textContent = sy + modalDraftRelation.offsetY.toFixed(2);
+
+      const topEdge = Number((modalDraftRelation.offsetY + 0.5 * modalDraftRelation.length).toFixed(3));
+      const botEdge = Number((modalDraftRelation.offsetY - 0.5 * modalDraftRelation.length).toFixed(3));
+      const previewObj = {
+        baseOffsetRelation: {
+          offsetX: Number(modalDraftRelation.offsetX.toFixed(3)),
+          offsetY: Number(modalDraftRelation.offsetY.toFixed(3)),
+          length: Number(modalDraftRelation.length.toFixed(3)),
+          radius: Number(modalDraftRelation.radius.toFixed(3)),
+          topEndpointLocalY: topEdge,
+          bottomEndpointLocalY: botEdge
+        },
+        excludedStringMeshes: capsuleHitBox.excludedStringCount || 160,
+        coreSilhouetteMeshes: capsuleHitBox.coreMeshCount || 123
+      };
+      capsuleCachePreview.textContent = JSON.stringify(previewObj, null, 2);
+
+      // 메인 오버레이 캔버스에도 실시간 미리보기 반영
+      computeFullBodyCapsuleFromModelPos(null, modalDraftRelation);
+      drawSilhouetteModalCanvas();
+    }
+
+    function openHitboxModal() {
+      savedBeforeModal = {
+        offsetX: window.capsuleRelationCache.offsetX,
+        offsetY: window.capsuleRelationCache.offsetY,
+        length: window.capsuleRelationCache.length,
+        radius: window.capsuleRelationCache.radius
+      };
+      modalDraftRelation = { ...savedBeforeModal };
+      hitboxModalBackdrop.classList.add("open");
+      syncModalUIFromDraft();
+    }
+
+    function closeHitboxModal(confirmSave) {
+      if (confirmSave) {
+        const topEdge = Number((modalDraftRelation.offsetY + 0.5 * modalDraftRelation.length).toFixed(3));
+        const botEdge = Number((modalDraftRelation.offsetY - 0.5 * modalDraftRelation.length).toFixed(3));
+        window.capsuleRelationCache = {
+          offsetX: Number(modalDraftRelation.offsetX.toFixed(3)),
+          offsetY: Number(modalDraftRelation.offsetY.toFixed(3)),
+          length: Number(modalDraftRelation.length.toFixed(3)),
+          radius: Number(modalDraftRelation.radius.toFixed(3)),
+          topEndpointLocalY: topEdge,
+          bottomEndpointLocalY: botEdge,
+          updatedAt: new Date().toLocaleTimeString()
+        };
+        computeFullBodyCapsuleFromModelPos(null, window.capsuleRelationCache);
+      } else {
+        computeFullBodyCapsuleFromModelPos(null, savedBeforeModal);
+      }
+      hitboxModalBackdrop.classList.remove("open");
+    }
+
+    function resetModalCapsuleToDefault() {
+      modalDraftRelation = { ...DEFAULT_CAPSULE_RELATION };
+      syncModalUIFromDraft();
+    }
+
+    capLenSlider.oninput = () => {
+      modalDraftRelation.length = parseFloat(capLenSlider.value);
+      syncModalUIFromDraft();
+    };
+    capRadSlider.oninput = () => {
+      modalDraftRelation.radius = parseFloat(capRadSlider.value);
+      if (modalDraftRelation.length < modalDraftRelation.radius * 2.04) {
+        modalDraftRelation.length = Number((modalDraftRelation.radius * 2.04).toFixed(2));
+      }
+      syncModalUIFromDraft();
+    };
+    capOffXSlider.oninput = () => {
+      modalDraftRelation.offsetX = parseFloat(capOffXSlider.value);
+      syncModalUIFromDraft();
+    };
+    capOffYSlider.oninput = () => {
+      modalDraftRelation.offsetY = parseFloat(capOffYSlider.value);
+      syncModalUIFromDraft();
+    };
+
+    function drawSilhouetteModalCanvas() {
+      const w = silCanvas.width;
+      const h = silCanvas.height;
+      silCtx.clearRect(0, 0, w, h);
+
+      // 1) 배경 격자 및 모델 기본 원점(Base Offset = 0, 0) 십자선
+      silCtx.save();
+      silCtx.strokeStyle = "rgba(148, 163, 184, 0.12)";
+      silCtx.lineWidth = 1;
+      for (let gx = -1.0; gx <= 1.0; gx += 0.25) {
+        const p = localToSilPx(gx, 0);
+        silCtx.beginPath();
+        silCtx.moveTo(p.x, 0);
+        silCtx.lineTo(p.x, h);
+        silCtx.stroke();
+      }
+      for (let gy = -1.25; gy <= 1.25; gy += 0.25) {
+        const p = localToSilPx(0, gy);
+        silCtx.beginPath();
+        silCtx.moveTo(0, p.y);
+        silCtx.lineTo(w, p.y);
+        silCtx.stroke();
+      }
+      // 원점 축
+      const orig = localToSilPx(0, 0);
+      silCtx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+      silCtx.beginPath();
+      silCtx.moveTo(0, orig.y);
+      silCtx.lineTo(w, orig.y);
+      silCtx.moveTo(orig.x, 0);
+      silCtx.lineTo(orig.x, h);
+      silCtx.stroke();
+
+      // 2) 제외된 바람 흔들림(string) 영역(양갈래 머리카락, 리본 끈, 치마 프릴)을 점선 유령 실루엣으로 표시
+      silCtx.strokeStyle = "rgba(239, 68, 68, 0.38)";
+      silCtx.fillStyle = "rgba(239, 68, 68, 0.06)";
+      silCtx.setLineDash([4, 4]);
+      silCtx.lineWidth = 1.2;
+
+      // 좌우 양갈래 hair_left / hair_right (제외된 string 메쉬)
+      const drawExcludedTwinTail = (sign) => {
+        silCtx.beginPath();
+        const p1 = localToSilPx(sign * 0.14, 0.92);
+        const p2 = localToSilPx(sign * 0.36, 0.55);
+        const p3 = localToSilPx(sign * 0.42, 0.05);
+        const p4 = localToSilPx(sign * 0.22, -0.02);
+        const p5 = localToSilPx(sign * 0.15, 0.65);
+        silCtx.moveTo(p1.x, p1.y);
+        silCtx.quadraticCurveTo(p2.x, p2.y, p3.x, p3.y);
+        silCtx.lineTo(p4.x, p4.y);
+        silCtx.quadraticCurveTo(p5.x, p5.y, p1.x, p1.y);
+        silCtx.fill();
+        silCtx.stroke();
+      };
+      drawExcludedTwinTail(-1);
+      drawExcludedTwinTail(1);
+      silCtx.setLineDash([]);
+
+      // 3) 바람에 흔들리지 않는 순수 코어 신체 실루엣(head ~ neck ~ belly_in ~ leg_main ~ shoe_left/right) 렌더링
+      silCtx.fillStyle = "rgba(56, 189, 248, 0.24)";
+      silCtx.strokeStyle = "rgba(56, 189, 248, 0.85)";
+      silCtx.lineWidth = 1.6;
+
+      // 머리(head: 중심 (0, 0.85), 반경 ~0.135 x 0.22)
+      const headC = localToSilPx(0, 0.86);
+      silCtx.beginPath();
+      silCtx.ellipse(headC.x, headC.y, 0.13 * SIL_PX_PER_UNIT, 0.21 * SIL_PX_PER_UNIT, 0, 0, Math.PI * 2);
+      silCtx.fill();
+      silCtx.stroke();
+
+      // 목(neck_main) + 상체/몸통(belly_in, 골반까지: y = 0.65 ~ -0.05)
+      silCtx.beginPath();
+      const torsoPts = [
+        [-0.04, 0.66], [0.04, 0.66],
+        [0.125, 0.56], [0.115, 0.22], [0.13, -0.06],
+        [-0.13, -0.06], [-0.115, 0.22], [-0.125, 0.56]
+      ];
+      torsoPts.forEach(([lx, ly], idx) => {
+        const pt = localToSilPx(lx, ly);
+        if (idx === 0) silCtx.moveTo(pt.x, pt.y);
+        else silCtx.lineTo(pt.x, pt.y);
+      });
+      silCtx.closePath();
+      silCtx.fill();
+      silCtx.stroke();
+
+      // 좌/우 다리(leg_left_main / leg_right_main) 및 발끝(shoe_left / shoe_right: y = -0.06 ~ -0.92)
+      const drawCoreLeg = (sign) => {
+        const legPts = [
+          [sign * 0.02, -0.06],
+          [sign * 0.115, -0.06],
+          [sign * 0.095, -0.48],
+          [sign * 0.085, -0.82],
+          [sign * 0.105, -0.92], // 발끝 (shoe tip)
+          [sign * 0.015, -0.92],
+          [sign * 0.02, -0.48]
+        ];
+        silCtx.beginPath();
+        legPts.forEach(([lx, ly], idx) => {
+          const pt = localToSilPx(lx, ly);
+          if (idx === 0) silCtx.moveTo(pt.x, pt.y);
+          else silCtx.lineTo(pt.x, pt.y);
+        });
+        silCtx.closePath();
+        silCtx.fill();
+        silCtx.stroke();
+      };
+      drawCoreLeg(-1);
+      drawCoreLeg(1);
+
+      // 실루엣 부위 라벨 표시
+      silCtx.fillStyle = "rgba(186, 230, 253, 0.85)";
+      silCtx.font = "10px -apple-system, sans-serif";
+      const lblHead = localToSilPx(0.16, 1.04);
+      silCtx.fillText("정수리 (head +1.08)", lblHead.x, lblHead.y);
+      const lblFeet = localToSilPx(0.14, -0.90);
+      silCtx.fillText("발끝 (shoe -0.92)", lblFeet.x, lblFeet.y);
+      silCtx.fillStyle = "rgba(252, 165, 165, 0.80)";
+      const lblStr = localToSilPx(-0.47, 0.35);
+      silCtx.fillText("string 제외", lblStr.x, lblStr.y);
+
+      // 모델 기준점(Base Offset 0,0) 마커
+      silCtx.fillStyle = "#f43f5e";
+      silCtx.beginPath();
+      silCtx.arc(orig.x, orig.y, 4, 0, Math.PI * 2);
+      silCtx.fill();
+      silCtx.fillStyle = "#fda4af";
+      silCtx.fillText("Base(0,0)", orig.x + 6, orig.y - 4);
+
+      // 4) 현재 편집 중인 캡슐 히트박스(modalDraftRelation) 오버레이 및 조작 핸들 렌더링
+      const rNorm = modalDraftRelation.radius;
+      const lenNorm = Math.max(rNorm * 2.02, modalDraftRelation.length);
+      const halfSpine = Math.max(0.005, 0.5 * lenNorm - rNorm);
+      const cxNorm = modalDraftRelation.offsetX;
+      const cyNorm = modalDraftRelation.offsetY;
+      const ayNorm = cyNorm - halfSpine;
+      const byNorm = cyNorm + halfSpine;
+
+      const pA = localToSilPx(cxNorm, ayNorm);
+      const pB = localToSilPx(cxNorm, byNorm);
+      const pC = localToSilPx(cxNorm, cyNorm);
+      const rPx = rNorm * SIL_PX_PER_UNIT;
+
+      silCtx.beginPath();
+      silCtx.arc(pA.x, pA.y, rPx, 0, Math.PI, false);
+      silCtx.arc(pB.x, pB.y, rPx, Math.PI, 0, false);
+      silCtx.closePath();
+      silCtx.fillStyle = "rgba(16, 185, 129, 0.22)";
+      silCtx.fill();
+      silCtx.strokeStyle = "#10b981";
+      silCtx.lineWidth = 2.4;
+      silCtx.stroke();
+
+      // 중심선 AB
+      silCtx.strokeStyle = "rgba(110, 231, 183, 0.7)";
+      silCtx.setLineDash([5, 4]);
+      silCtx.beginPath();
+      silCtx.moveTo(pA.x, pA.y);
+      silCtx.lineTo(pB.x, pB.y);
+      silCtx.stroke();
+      silCtx.setLineDash([]);
+
+      // 드래그 핸들: B(상단 캡), A(하단 캡), C(캡슐 중심 이동), R(우측 두께 조절)
+      const drawHandle = (x, y, color, tag) => {
+        silCtx.fillStyle = color;
+        silCtx.strokeStyle = "#0f172a";
+        silCtx.lineWidth = 1.5;
+        silCtx.beginPath();
+        silCtx.arc(x, y, 6, 0, Math.PI * 2);
+        silCtx.fill();
+        silCtx.stroke();
+        silCtx.fillStyle = "#ffffff";
+        silCtx.font = "bold 9px monospace";
+        silCtx.fillText(tag, x - 3, y + 3);
+      };
+
+      drawHandle(pB.x, pB.y, "#34d399", "B");
+      drawHandle(pA.x, pA.y, "#34d399", "A");
+      drawHandle(pC.x, pC.y, "#f59e0b", "C");
+      drawHandle(pC.x + rPx, pC.y, "#60a5fa", "R");
+
+      silCtx.restore();
+    }
+
+    // 실루엣 캔버스 마우스 드래그 인터랙션
+    silCanvas.addEventListener("mousedown", (e) => {
+      const rect = silCanvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (silCanvas.width / rect.width);
+      const my = (e.clientY - rect.top) * (silCanvas.height / rect.height);
+
+      const rNorm = modalDraftRelation.radius;
+      const lenNorm = Math.max(rNorm * 2.02, modalDraftRelation.length);
+      const halfSpine = Math.max(0.005, 0.5 * lenNorm - rNorm);
+      const cxNorm = modalDraftRelation.offsetX;
+      const cyNorm = modalDraftRelation.offsetY;
+
+      const pA = localToSilPx(cxNorm, cyNorm - halfSpine);
+      const pB = localToSilPx(cxNorm, cyNorm + halfSpine);
+      const pC = localToSilPx(cxNorm, cyNorm);
+      const rPx = rNorm * SIL_PX_PER_UNIT;
+      const pR = { x: pC.x + rPx, y: pC.y };
+
+      if (Math.hypot(mx - pR.x, my - pR.y) <= 12) {
+        dragMode = "radius";
+      } else if (Math.hypot(mx - pB.x, my - pB.y) <= 12) {
+        dragMode = "top";
+      } else if (Math.hypot(mx - pA.x, my - pA.y) <= 12) {
+        dragMode = "bottom";
+      } else if (Math.hypot(mx - pC.x, my - pC.y) <= 16 || (Math.abs(mx - pC.x) <= rPx && my >= pB.y - rPx && my <= pA.y + rPx)) {
+        dragMode = "center";
+      } else {
+        dragMode = null;
+      }
+
+      if (dragMode) {
+        dragStartMouse = { x: mx, y: my };
+        dragStartDraft = { ...modalDraftRelation };
+      }
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragMode || !dragStartDraft) return;
+      const rect = silCanvas.getBoundingClientRect();
+      const mx = (e.clientX - rect.left) * (silCanvas.width / rect.width);
+      const my = (e.clientY - rect.top) * (silCanvas.height / rect.height);
+      const dLocalX = (mx - dragStartMouse.x) / SIL_PX_PER_UNIT;
+      const dLocalY = -(my - dragStartMouse.y) / SIL_PX_PER_UNIT;
+
+      if (dragMode === "center") {
+        modalDraftRelation.offsetX = Math.max(-0.75, Math.min(0.75, dragStartDraft.offsetX + dLocalX));
+        modalDraftRelation.offsetY = Math.max(-0.75, Math.min(0.75, dragStartDraft.offsetY + dLocalY));
+      } else if (dragMode === "radius") {
+        const pC = localToSilPx(dragStartDraft.offsetX, dragStartDraft.offsetY);
+        const newR = Math.abs(mx - pC.x) / SIL_PX_PER_UNIT;
+        modalDraftRelation.radius = Math.max(0.04, Math.min(0.42, newR));
+        if (modalDraftRelation.length < modalDraftRelation.radius * 2.04) {
+          modalDraftRelation.length = modalDraftRelation.radius * 2.04;
+        }
+      } else if (dragMode === "top") {
+        const oldBottom = dragStartDraft.offsetY - 0.5 * dragStartDraft.length;
+        const newTop = Math.max(oldBottom + modalDraftRelation.radius * 2.04, dragStartDraft.offsetY + 0.5 * dragStartDraft.length + dLocalY);
+        modalDraftRelation.length = Math.max(0.40, Math.min(2.60, newTop - oldBottom));
+        modalDraftRelation.offsetY = Math.max(-0.75, Math.min(0.75, 0.5 * (newTop + oldBottom)));
+      } else if (dragMode === "bottom") {
+        const oldTop = dragStartDraft.offsetY + 0.5 * dragStartDraft.length;
+        const newBottom = Math.min(oldTop - modalDraftRelation.radius * 2.04, dragStartDraft.offsetY - 0.5 * dragStartDraft.length + dLocalY);
+        modalDraftRelation.length = Math.max(0.40, Math.min(2.60, oldTop - newBottom));
+        modalDraftRelation.offsetY = Math.max(-0.75, Math.min(0.75, 0.5 * (oldTop + newBottom)));
+      }
+      syncModalUIFromDraft();
+    });
+
+    window.addEventListener("mouseup", () => {
+      dragMode = null;
+      dragStartDraft = null;
+    });
+
+    /**
+     * 반주기(0 <= τ <= T_half = 1/(2f)) 접촉 부착 페이즈 동안 물체 위치를
+     * 법선 방향으로 진동 진폭만큼 들어갔다 나오는 1D B-Spline 곡선으로 업데이트하고,
+     * 반주기가 끝나는 순간(τ >= T_half, 법선축 팽창 페이즈 전환 시점) 운동량 흡수 후 자연스러운 중력 낙하 궤적으로 이탈시키는 함수
+     */
+    function updateProjectileContactPhase(p, dt, nowSec) {
+      const c = p.contact;
+      if (!c) return false;
+
+      if (p.isRigidMode || (p.softness ?? 0) <= 0.001) {
+        p.contact = null;
+        return false;
+      }
+
+      const elapsed = nowSec - c.t0;
+      const halfT = Math.max(0.025, c.halfPeriodSec || 0.06);
+      const objR = p.radius || (p.size * 0.25) || 0.095;
+
+      // 접선 방향 미소 슬라이딩 적분
+      c.tanOffset = (c.tanOffset || 0.0) + (c.tanVel || 0.0) * 0.18 * dt;
+
+      if (elapsed < halfT) {
+        // [반주기 접촉 페이즈 (0 <= u < 1)]: 표면에 달라붙어 법선 방향(outNx, outNy)으로 들어갔다 나오는 B-Spline 운동
+        const u = Math.max(0.0, Math.min(1.0, elapsed / halfT));
+        const bsplineVal = evaluateBSplineNormalIndentation(u);
+        const normalIndent = c.amplitude * objR * 1.85 * bsplineVal;
+
+        if (c.type === "capsule") {
+          const ax = capsuleHitBox.ax, ay = capsuleHitBox.ay;
+          const bx = capsuleHitBox.bx, by = capsuleHitBox.by;
+          const capR = capsuleHitBox.radius;
+          const qx = ax + c.tSeg * (bx - ax);
+          const qy = ay + c.tSeg * (by - ay);
+          // 캡슐 표면(capR) + 물체 반경(objR) 위치에서 법선 내향(-outN)으로 normalIndent 만큼 침투 후 복원
+          const radialDist = capR + objR - normalIndent;
+          p.x = qx + c.outNx * radialDist + c.tx * c.tanOffset;
+          p.y = qy + c.outNy * radialDist + c.ty * c.tanOffset;
+
+          // 부착 동안 아바타에 전달되는 접촉 압력(합뉴턴) 지속 반영
+          const pressForce = (p.mass || 0.38) * 9.81 * (1.0 + 2.5 * bsplineVal);
+          capsuleHitBox.netForceX += -c.outNx * pressForce;
+          capsuleHitBox.netForceY += -c.outNy * pressForce;
+        } else if (c.type === "floor") {
+          p.x = c.anchorX + c.tanOffset;
+          p.y = c.floorY - normalIndent;
+        }
+
+        p.vx = c.tx * (c.tanVel || 0.0) * 0.18;
+        p.vy = c.ty * (c.tanVel || 0.0) * 0.18;
+        p.rot = (p.rot + p.vRot * 0.30 * dt) % 360.0;
+        return true;
+      }
+
+      // [반주기 종료 (τ >= T_half, u = 1)]: 표면에서 떨어져 나오며 법선축 팽창 페이즈 및 중력 가속도 낙하로 전환!
+      if (c.type === "capsule") {
+        const ax = capsuleHitBox.ax, ay = capsuleHitBox.ay;
+        const bx = capsuleHitBox.bx, by = capsuleHitBox.by;
+        const capR = capsuleHitBox.radius;
+        const qx = ax + c.tSeg * (bx - ax);
+        const qy = ay + c.tSeg * (by - ay);
+        const sumR = capR + objR;
+        p.x = qx + c.outNx * (sumR + 0.005) + c.tx * c.tanOffset;
+        p.y = qy + c.outNy * (sumR + 0.005) + c.ty * c.tanOffset;
+      } else if (c.type === "floor") {
+        p.x = c.anchorX + c.tanOffset;
+        p.y = c.floorY;
+      }
+
+      p.vx = c.releaseVx !== undefined ? c.releaseVx : (c.outNx * c.releaseSpeed + c.tx * c.tanVel);
+      p.vy = c.releaseVy !== undefined ? c.releaseVy : (c.outNy * c.releaseSpeed + c.ty * c.tanVel);
+      if (p.isPile && c.outNy > 0.85 && Math.abs(p.vx) < 0.20) {
+        const slideDir = (p.x >= capsuleHitBox.centerX) ? 1.0 : -1.0;
+        p.vx += slideDir * (0.20 + Math.random() * 0.15);
+      }
+      p.contact = null;
+      return false;
+    }
+
+    /**
+     * 물체(p, 질량 m)와 발끝까지 연장된 전신 캡슐(선분 AB + 반경 R) 히트박스 간의 충돌 해결:
+     * - 첫 충돌(!p.hasHit):
+     *   - 강체 모드(isRigidMode): 변형/부착 없이 피격 운동량을 흡수하고 작은 반발과 함께 중력 낙하(gravity=4.80)로 전환
+     *   - 말랑한 모드: 본 카르만 모델의 반주기(1/2f) 동안 캡슐 표면에 달라붙어 B-Spline 법선 침투 후 비탄성 감쇠 속도로 이탈 및 중력 낙하
+     * - 이미 피격 후 낙하 중인 상태(p.hasHit):
+     *   - 캡슐 표면을 파고들지 않도록 외곽으로만 밀착시키고 자연스러운 중력 가속도 낙하(vy)를 방해하지 않음
+     */
+    function resolveAvatarCapsuleCollision(p, dt, nowSec = performance.now() / 1000, allowSticking = true) {
+      if (p.contact && p.contact.type === "capsule") {
+        return { collided: false, normalSpeed: 0, forceX: 0, forceY: 0, forceMag: 0, outNx: p.contact.outNx, outNy: p.contact.outNy };
+      }
+
+      const ax = capsuleHitBox.ax, ay = capsuleHitBox.ay;
+      const bx = capsuleHitBox.bx, by = capsuleHitBox.by;
+      const capR = capsuleHitBox.radius;
+      const objR = p.radius || (p.size * 0.25) || 0.09;
+      const sumR = capR + objR;
+
+      const abx = bx - ax;
+      const aby = by - ay;
+      const abLenSq = abx * abx + aby * aby;
+      let t = abLenSq > 1e-8 ? ((p.x - ax) * abx + (p.y - ay) * aby) / abLenSq : 0.5;
+      t = Math.max(0.0, Math.min(1.0, t));
+
+      const qx = ax + t * abx;
+      const qy = ay + t * aby;
+
+      const dx = p.x - qx;
+      const dy = p.y - qy;
+      const distSq = dx * dx + dy * dy;
+
+      if (distSq >= sumR * sumR) {
+        return { collided: false, normalSpeed: 0, forceX: 0, forceY: 0, forceMag: 0, outNx: 0, outNy: 1 };
+      }
+
+      const dist = Math.sqrt(distSq);
+      let outNx = 0.0, outNy = 1.0;
+      if (dist > 1e-5) {
+        outNx = dx / dist;
+        outNy = dy / dist;
+      } else {
+        outNx = p.vx >= 0 ? -1.0 : 1.0;
+        outNy = 0.0;
+      }
+
+      const velAlongOutNormal = p.vx * outNx + p.vy * outNy;
+      const mass = p.mass || 0.38;
+      const isRigid = p.isRigidMode || (p.softness ?? 0) <= 0.001;
+      const baseRest = p.baseRestitution ?? p.restitution ?? 0.30;
+      let normalImpulse = 0.0;
+      const vn = Math.max(0.15, Math.abs(velAlongOutNormal));
+
+      const isInitialHit = !p.hasHit;
+      if (isInitialHit) {
+        p.x = qx + outNx * (sumR + 0.005);
+        p.y = qy + outNy * (sumR + 0.005);
+
+        const tx = -outNy;
+        const ty = outNx;
+        const velTan = p.vx * tx + p.vy * ty;
+        const releaseVy = Math.min(0.15, p.vy * 0.20 + outNy * 0.10);
+        p.gravity = 4.80;
+
+        if (isRigid) {
+          // [강체 모드]: 슬라이더 최하단(0.00)일 때 변형/부착 없이 강체 반발 및 중력 낙하
+          normalImpulse = mass * (1.0 + baseRest) * vn;
+          const reboundSpeed = vn * Math.min(0.85, 0.32 * (baseRest / 0.30));
+          p.vx = outNx * reboundSpeed;
+          p.vy = releaseVy;
+          if (p.isPile && outNy > 0.85 && Math.abs(p.vx) < 0.20) {
+            const slideDir = (p.x >= qx) ? 1.0 : -1.0;
+            p.vx += slideDir * (0.20 + Math.random() * 0.15);
+          }
+          p.vRot = -p.vRot * 0.65;
+        } else {
+          // [말랑한 본 카르만 변형 모드]: 반주기(1/2f) 표면 부착 + B-Spline 법선 침투 후 비탄성 감쇠 낙하
+          const r = computeVonKarmanParams(p, vn);
+          normalImpulse = mass * (1.0 + r.eEff) * vn;
+          const reboundSpeed = vn * Math.max(0.02, 0.25 * Math.pow(1.0 - 0.85 * r.s, 1.5));
+          const releaseVx = outNx * reboundSpeed;
+
+          if (allowSticking) {
+            p.contact = {
+              type: "capsule",
+              t0: nowSec,
+              halfPeriodSec: r.halfPeriodSec,
+              amplitude: r.amplitude,
+              tSeg: t,
+              outNx,
+              outNy,
+              tx,
+              ty,
+              tanVel: velTan * 0.15,
+              tanOffset: 0.0,
+              releaseSpeed: reboundSpeed,
+              releaseVx,
+              releaseVy
+            };
+            p.vx = 0.0;
+            p.vy = 0.0;
+          } else {
+            p.vx = releaseVx;
+            p.vy = releaseVy;
+          }
+          p.vRot = -p.vRot * 0.25;
+        }
+      } else {
+        // 이미 피격 후 낙하 중인 상태: 캡슐 표면을 파고들지 않도록 외곽으로만 밀착시키고, 중력 가속도 낙하(vy)는 방해하지 않음
+        p.x = qx + outNx * sumR;
+        p.vx *= 0.92;
+        if (p.isPile && outNy > 0.75) {
+          p.y = qy + outNy * sumR;
+          if (Math.abs(p.vx) < 0.20) {
+            const slideDir = (p.x >= qx) ? 1.0 : -1.0;
+            p.vx += slideDir * 0.22;
+          }
+        }
+        return { collided: false, normalSpeed: 0, forceX: 0, forceY: 0, forceMag: 0, outNx, outNy };
+      }
+
+      // 뉴턴 제3법칙(작용-반작용): 아바타가 받는 힘은 내향 법선(-outN) 방향
+      const contactDt = Math.max(0.016, dt);
+      const impactForceMag = normalImpulse / contactDt;
+      const weightForceMag = mass * 9.81 * Math.max(0.0, outNy);
+      const totalNormalForce = impactForceMag + weightForceMag;
+
+      const forceX = -outNx * totalNormalForce + 0.14 * mass * p.vx / contactDt;
+      const forceY = -outNy * totalNormalForce + 0.14 * mass * p.vy / contactDt;
+      const forceMag = Math.hypot(forceX, forceY);
+
+      capsuleHitBox.netForceX += forceX;
+      capsuleHitBox.netForceY += forceY;
+
+      return {
+        collided: true,
+        normalSpeed: vn,
+        forceX,
+        forceY,
+        forceMag,
+        outNx,
+        outNy
+      };
+    }
+
+    // =========================================================================
+    // 3. VTube Studio WebSocket 클라이언트
+    // =========================================================================
+    const VTS_URI = "ws://127.0.0.1:8001";
+    const PLUGIN_NAME = "AntigravityVTSController";
+    const PLUGIN_DEV = "AntigravityAgent";
+    const TOKEN_KEY = "vts_antigravity_token";
+    const PRESET_TOKEN = "1f4d85d3a390ca0dc4abd61e4a8c98f07297d2180bd610b46d03c4e63290647a";
+
+    let ws = null;
+    let isAuthenticated = false;
+    let reqCounter = 1;
+    const pendingReqs = new Map();
+
+    let isSessionActive = false;
+    let pendingSpawns = 0;
+    let resetGeneration = 0;
+    let baselineCapturePromise = null;
+    let baselineModelPos = null;
+    let baselineExpressions = {};
+    let availableHotkeys = [];
+    let physicsGroupIds = [];
+    let scheduledResetTimer = null;
+
+    function sendVTS(messageType, data = {}, timeoutMs = 8000) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(null);
+      const requestID = "req_" + (reqCounter++);
+      return new Promise((resolve) => {
+        let timer = null;
+        if (timeoutMs > 0) {
+          timer = setTimeout(() => {
+            if (pendingReqs.has(requestID)) {
+              pendingReqs.delete(requestID);
+              resolve(null);
+            }
+          }, timeoutMs);
+        }
+        pendingReqs.set(requestID, (msg) => {
+          if (timer) clearTimeout(timer);
+          resolve(msg);
+        });
+        ws.send(JSON.stringify({
+          apiName: "VTubeStudioPublicAPI",
+          apiVersion: "1.0",
+          requestID,
+          messageType,
+          data
+        }));
+      });
+    }
+
+    async function connectVTS() {
+      ws = new WebSocket(VTS_URI);
+      ws.onopen = async () => {
+        try {
+          let token = localStorage.getItem(TOKEN_KEY) || PRESET_TOKEN;
+          let authRes = await sendVTS("AuthenticationRequest", {
+            pluginName: PLUGIN_NAME,
+            pluginDeveloper: PLUGIN_DEV,
+            authenticationToken: token
+          }, 10000);
+
+          if (!authRes?.data?.authenticated) {
+            document.getElementById("statusText").textContent = "VTS 화면에서 [Allow]를 눌러주세요";
+            const tokRes = await sendVTS("AuthenticationTokenRequest", {
+              pluginName: PLUGIN_NAME,
+              pluginDeveloper: PLUGIN_DEV
+            }, 30000);
+            token = tokRes?.data?.authenticationToken;
+            if (token) localStorage.setItem(TOKEN_KEY, token);
+            authRes = await sendVTS("AuthenticationRequest", {
+              pluginName: PLUGIN_NAME,
+              pluginDeveloper: PLUGIN_DEV,
+              authenticationToken: token
+            }, 10000);
+          } else {
+            localStorage.setItem(TOKEN_KEY, token);
+          }
+
+          if (!authRes?.data?.authenticated) {
+            document.getElementById("statusText").textContent = "인증 실패 (새로고침 필요)";
+            return;
+          }
+
+          isAuthenticated = true;
+          document.getElementById("statusDot").classList.add("connected");
+          document.getElementById("statusText").textContent = "VTS 연결됨 (전신 캡슐 & 본 카르만 물리 활성)";
+
+          await sendVTS("ItemUnloadRequest", {
+            unloadAllInScene: false,
+            unloadAllLoadedByThisPlugin: true,
+            allowUnloadingItemsLoadedByUserOrOtherPlugins: false,
+            instanceIDs: [],
+            fileNames: []
+          });
+
+          await refreshModelMetadata();
+          const modelRes = await sendVTS("CurrentModelRequest");
+          if (modelRes?.data?.modelPosition) {
+            computeFullBodyCapsuleFromModelPos(modelRes.data.modelPosition);
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        const cb = pendingReqs.get(msg.requestID);
+        if (cb) {
+          pendingReqs.delete(msg.requestID);
+          cb(msg);
+        }
+      };
+      ws.onclose = () => {
+        isAuthenticated = false;
+        document.getElementById("statusDot").classList.remove("connected");
+        document.getElementById("statusText").textContent = "VTS 재연결 대기 중...";
+        setTimeout(connectVTS, 3000);
+      };
+    }
+
+    async function ensurePreThrowBaselineCaptured() {
+      if (!isAuthenticated) return capsuleHitBox;
+      if (isSessionActive) {
+        if (baselineCapturePromise) {
+          await baselineCapturePromise;
+        }
+        return capsuleHitBox;
+      }
+
+      isSessionActive = true;
+      baselineCapturePromise = (async () => {
+        const modelRes = await sendVTS("CurrentModelRequest");
+        const pos = modelRes?.data?.modelPosition;
+        if (pos) {
+          baselineModelPos = {
+            positionX: Number(pos.positionX),
+            positionY: Number(pos.positionY),
+            rotation: Number(pos.rotation),
+            size: Number(pos.size)
+          };
+          computeFullBodyCapsuleFromModelPos(baselineModelPos);
+        }
+
+        const expRes = await sendVTS("ExpressionStateRequest", { details: false });
+        const exps = expRes?.data?.expressions || [];
+        const snapshot = {};
+        for (const e of exps) {
+          if (e.file) snapshot[e.file] = Boolean(e.active);
+        }
+        baselineExpressions = snapshot;
+        return capsuleHitBox;
+      })();
+
+      try {
+        return await baselineCapturePromise;
+      } finally {
+        baselineCapturePromise = null;
+      }
+    }
+
+    async function refreshModelMetadata() {
+      if (!isAuthenticated) return;
+      const hkRes = await sendVTS("HotkeysInCurrentModelRequest");
+      availableHotkeys = hkRes?.data?.availableHotkeys || [];
+      const physRes = await sendVTS("GetCurrentModelPhysicsRequest");
+      physicsGroupIds = (physRes?.data?.physicsGroups || []).map(g => g.groupID || g.id);
+
+      // VTube Studio 현재 씬의 최대 소환 가능 아이템 한도(ItemListRequest) 실시간 동기화
+      const itemListRes = await sendVTS("ItemListRequest", {
+        includeAvailableSpots: true,
+        includeItemInstancesInScene: true,
+        includeAvailableItemFiles: false
+      });
+      if (itemListRes?.data) {
+        const totalAllowed = Number(itemListRes.data.totalItemsAllowedCount) || 60;
+        const inSceneCount = Number(itemListRes.data.itemsInSceneCount) || 0;
+        const ourActiveCount = projectiles.filter(p => p.instanceID).length;
+        const externalCount = Math.max(0, inSceneCount - ourActiveCount);
+        const sceneAvailableForPlugin = Math.max(1, totalAllowed - externalCount);
+        vtsMaxSpawnableItems = Math.min(MAX_FRONT_ORDER_SLOTS, sceneAvailableForPlugin);
+      }
+
+      const amRes = await sendVTS("ArtMeshListRequest");
+      const l2dRes = await sendVTS("Live2DParameterListRequest");
+      const artMeshNames = amRes?.data?.artMeshNames || [];
+      const l2dParams = l2dRes?.data?.parameters || [];
+      if (artMeshNames.length > 0) {
+        const { coreMeshes, excludedStringMeshes } = filterNonStringCoreArtMeshes(artMeshNames, l2dParams);
+        capsuleHitBox.coreMeshCount = coreMeshes.length;
+        capsuleHitBox.excludedStringCount = excludedStringMeshes.length;
+        capsuleHitBox.hasFeetMesh = coreMeshes.some(m => /shoe|leg|foot|feet/i.test(m));
+      }
+
+      const expRes = await sendVTS("ExpressionStateRequest", { details: false });
+      const modelExps = expRes?.data?.expressions || [];
+      const existingValues = new Set(Array.from(expSelect.options).map(o => o.value));
+      for (const e of modelExps) {
+        if (e.file && !existingValues.has(e.file)) {
+          const opt = document.createElement("option");
+          opt.value = e.file;
+          opt.textContent = `[모델 표정] ${e.name || e.file}`;
+          expSelect.appendChild(opt);
+          existingValues.add(e.file);
+        }
+      }
+
+      if (!isSessionActive && !isBusy() && !hitboxModalBackdrop.classList.contains("open")) {
+        const modelRes = await sendVTS("CurrentModelRequest");
+        if (modelRes?.data?.modelPosition) {
+          computeFullBodyCapsuleFromModelPos(modelRes.data.modelPosition);
+        }
+      } else if (isSessionActive && baselineModelPos && !modelMoveInFlight && !hitboxModalBackdrop.classList.contains("open")) {
+        // 인터랙션 세션 중 외부 조작/핫키 등으로 모델이 Default 위치에서 추가로 멀어진 경우,
+        // 오프셋을 avatarRestoreState에 반영하여 약한 복원력과 댐핑으로 Default 위치/포즈로 끌려오도록 동기화
+        const modelRes = await sendVTS("CurrentModelRequest");
+        const pos = modelRes?.data?.modelPosition;
+        if (pos) {
+          const extDx = Number(pos.positionX) - baselineModelPos.positionX;
+          const extDy = Number(pos.positionY) - baselineModelPos.positionY;
+          const extDRot = Number(pos.rotation) - baselineModelPos.rotation;
+          if (Math.hypot(extDx - avatarRestoreState.dx, extDy - avatarRestoreState.dy) > 0.015 || Math.abs(extDRot - avatarRestoreState.dRot) > 0.8) {
+            avatarRestoreState.dx = extDx;
+            avatarRestoreState.dy = extDy;
+            avatarRestoreState.dRot = extDRot;
+            avatarRestoreState.active = true;
+          }
+        }
+      }
+    }
+    setInterval(() => refreshModelMetadata(), 4000);
+    connectVTS();
+
+    // =========================================================================
+    // 4. Live2D 모델 Default 위치·포즈 약한 복원력(kr) & 댐핑(cr) 상태 및 Default State 복귀 함수
+    // =========================================================================
+    let modelMoveInFlight = false;
+    const avatarRestoreState = {
+      dx: 0.0,
+      dy: 0.0,
+      dRot: 0.0,
+      vx: 0.0,
+      vy: 0.0,
+      vRot: 0.0,
+      pose: {
+        FaceAngleX: 0.0,
+        FaceAngleY: 0.0,
+        FaceAngleZ: 0.0,
+        FacePositionX: 0.0,
+        FacePositionY: 0.0
+      },
+      poseVel: {
+        FaceAngleX: 0.0,
+        FaceAngleY: 0.0,
+        FaceAngleZ: 0.0,
+        FacePositionX: 0.0,
+        FacePositionY: 0.0
+      },
+      active: false
+    };
+
+    function clearAvatarRestoreState() {
+      avatarRestoreState.dx = 0.0;
+      avatarRestoreState.dy = 0.0;
+      avatarRestoreState.dRot = 0.0;
+      avatarRestoreState.vx = 0.0;
+      avatarRestoreState.vy = 0.0;
+      avatarRestoreState.vRot = 0.0;
+      for (const k of Object.keys(avatarRestoreState.pose)) {
+        avatarRestoreState.pose[k] = 0.0;
+        avatarRestoreState.poseVel[k] = 0.0;
+      }
+      avatarRestoreState.active = false;
+    }
+
+    function isBusy() {
+      if (pendingSpawns > 0 || inFlightItemLoads > 0 || activeImpulses.length > 0 || avatarRestoreState.active) return true;
+      for (const p of projectiles) {
+        if (!p.settled) return true;
+      }
+      return false;
+    }
+
+    function scheduleResetToDefaultState(resetDelaySec = null) {
+      const delaySec = resetDelaySec !== null ? resetDelaySec : parseFloat(rstSlider.value);
+      if (delaySec < 0) return;
+      if (scheduledResetTimer) clearTimeout(scheduledResetTimer);
+      const myGen = ++resetGeneration;
+      scheduledResetTimer = setTimeout(() => {
+        resetToDefaultState(0, false, myGen);
+      }, delaySec * 1000);
+    }
+
+    async function resetToDefaultState(resetDelaySec = 0, forceManual = false, expectedGen = null) {
+      if (forceManual) {
+        clearScheduledSpawnTimers();
+        clearAvatarRestoreState();
+        resetGeneration++;
+      }
+      if (scheduledResetTimer) {
+        clearTimeout(scheduledResetTimer);
+        scheduledResetTimer = null;
+      }
+      if (resetDelaySec > 0) {
+        await new Promise(r => setTimeout(r, resetDelaySec * 1000));
+      }
+      if (!forceManual && (isBusy() || (expectedGen !== null && expectedGen !== resetGeneration))) {
+        return;
+      }
+      if (!isAuthenticated) {
+        isSessionActive = false;
+        return;
+      }
+
+      for (const [expFile, targetActive] of Object.entries(baselineExpressions)) {
+        if (!forceManual && isBusy()) return;
+        if (!targetActive) {
+          await sendVTS("ExpressionActivationRequest", { expressionFile: expFile, active: false });
+        }
+      }
+      for (const [expFile, targetActive] of Object.entries(baselineExpressions)) {
+        if (!forceManual && isBusy()) return;
+        if (targetActive) {
+          await sendVTS("ExpressionActivationRequest", { expressionFile: expFile, active: true });
+        }
+      }
+
+      if (baselineModelPos && (forceManual || !isBusy())) {
+        clearAvatarRestoreState();
+        await sendVTS("MoveModelRequest", {
+          timeInSeconds: 0.20,
+          valuesAreRelativeToModel: false,
+          positionX: baselineModelPos.positionX,
+          positionY: baselineModelPos.positionY,
+          rotation: baselineModelPos.rotation,
+          size: baselineModelPos.size
+        });
+        computeFullBodyCapsuleFromModelPos(baselineModelPos);
+      }
+
+      if (forceManual || !isBusy()) {
+        const neutralParams = [
+          { id: "FaceAngleX", value: 0.0, weight: 1.0 },
+          { id: "FaceAngleY", value: 0.0, weight: 1.0 },
+          { id: "FaceAngleZ", value: 0.0, weight: 1.0 },
+          { id: "FacePositionX", value: 0.0, weight: 1.0 },
+          { id: "FacePositionY", value: 0.0, weight: 1.0 },
+          { id: "EyeOpenLeft", value: 1.0, weight: 1.0 },
+          { id: "EyeOpenRight", value: 1.0, weight: 1.0 },
+          { id: "MouthSmile", value: 0.5, weight: 1.0 },
+          { id: "MouthOpen", value: 0.0, weight: 1.0 },
+          { id: "Brows", value: 0.5, weight: 1.0 },
+          { id: "FaceAngry", value: 0.0, weight: 1.0 },
+          { id: "CheekPuff", value: 0.0, weight: 1.0 }
+        ];
+        await sendVTS("InjectParameterDataRequest", {
+          faceFound: false,
+          mode: "set",
+          parameterValues: neutralParams
+        });
+      }
+
+      if (forceManual || !isBusy()) {
+        projectiles.length = 0;
+        await sendVTS("ItemUnloadRequest", {
+          unloadAllInScene: false,
+          unloadAllLoadedByThisPlugin: true,
+          allowUnloadingItemsLoadedByUserOrOtherPlugins: false,
+          instanceIDs: [],
+          fileNames: []
+        });
+      }
+
+      if (!isBusy()) {
+        isSessionActive = false;
+      }
+    }
+
+    // =========================================================================
+    // 5. 속도·말랑함·질량 기반 아이템 투척(정수리 조준 & 시작 위치 랜덤 옵션) & 최대 소환 한도 캡핑
+    // =========================================================================
+    const projectiles = [];
+    const activeImpulses = [];
+    // VTS 모델 앞쪽 레이어(order 2 ~ 28, 총 27개 슬롯) 및 씬 최대 소환 가능 개수 엄격 제한
+    const MAX_FRONT_ORDER_SLOTS = 27;
+    let vtsMaxSpawnableItems = MAX_FRONT_ORDER_SLOTS;
+    let inFlightItemLoads = 0;
+    const scheduledSpawnTimers = [];
+    let nextOrderSlot = 10;
+    let customImagePermissionGranted = false;
+    let customImagePermissionPending = null;
+    const randomSpawnPosChk = document.getElementById("randomSpawnPosChk");
+
+    function clearScheduledSpawnTimers() {
+      while (scheduledSpawnTimers.length > 0) {
+        const tid = scheduledSpawnTimers.pop();
+        clearTimeout(tid);
+      }
+      pendingSpawns = 0;
+    }
+
+    function getRemainingSpawnSlots() {
+      return Math.max(0, vtsMaxSpawnableItems - (projectiles.length + inFlightItemLoads));
+    }
+
+    function allocateUniqueFrontOrderSlot() {
+      const usedOrders = new Set(projectiles.map(p => p.order));
+      for (let step = 0; step < MAX_FRONT_ORDER_SLOTS; step++) {
+        const candidate = 2 + ((nextOrderSlot - 2 + step) % MAX_FRONT_ORDER_SLOTS);
+        if (!usedOrders.has(candidate)) {
+          nextOrderSlot = 2 + ((candidate - 1) % MAX_FRONT_ORDER_SLOTS);
+          return candidate;
+        }
+      }
+      const fallback = nextOrderSlot;
+      nextOrderSlot = nextOrderSlot >= 28 ? 2 : nextOrderSlot + 1;
+      return fallback;
+    }
+
+    /**
+     * 새로 소환할 개수(neededCount)가 현재 남은 소환 가능 슬롯을 초과할 경우,
+     * 이미 바닥에 안착(settled === true)해 있는 이전 아이템부터 우선 언로드하여 슬롯을 회수하고,
+     * 절대 최대 소환 가능 개수(vtsMaxSpawnableItems) 이상을 호출하거나 연산하지 않도록 보장
+     */
+    function reclaimSettledProjectilesForNewSpawns(neededCount) {
+      const deficit = (projectiles.length + inFlightItemLoads + neededCount) - vtsMaxSpawnableItems;
+      if (deficit <= 0) return;
+
+      const reclaimUnloadIds = [];
+      let removed = 0;
+      for (let i = 0; i < projectiles.length && removed < deficit; i++) {
+        if (projectiles[i].settled) {
+          const [oldProj] = projectiles.splice(i, 1);
+          i--;
+          removed++;
+          if (oldProj.instanceID) {
+            reclaimUnloadIds.push(oldProj.instanceID);
+          }
+        }
+      }
+
+      if (isAuthenticated && reclaimUnloadIds.length > 0) {
+        sendVTS("ItemUnloadRequest", {
+          unloadAllInScene: false,
+          unloadAllLoadedByThisPlugin: false,
+          allowUnloadingItemsLoadedByUserOrOtherPlugins: true,
+          instanceIDs: reclaimUnloadIds,
+          fileNames: []
+        });
+      }
+    }
+
+    async function ensureCustomImagePermission() {
+      if (!isAuthenticated || customImagePermissionGranted) return customImagePermissionGranted;
+      if (customImagePermissionPending) return customImagePermissionPending;
+      customImagePermissionPending = (async () => {
+        try {
+          const statusEl = document.getElementById("statusText");
+          if (statusEl) {
+            statusEl.textContent = "VTS 창에서 [커스텀 이미지 아이템 로드 권한 Allow]를 확인 중...";
+          }
+          const res = await sendVTS("PermissionRequest", {
+            requestedPermission: "LoadCustomImagesAsItems"
+          }, 15000);
+          const perms = res?.data?.permissions || [];
+          const hasGrantedInList = Array.isArray(perms) && perms.some(p => p.name === "LoadCustomImagesAsItems" && p.granted);
+          if (res?.data?.grantSuccess === true || res?.data?.granted === true || hasGrantedInList) {
+            customImagePermissionGranted = true;
+            if (statusEl) {
+              statusEl.textContent = "VTS 연결됨 (커스텀 이미지 & 본 카르만 물리 활성)";
+            }
+          } else if (statusEl) {
+            statusEl.textContent = "VTS 연결됨 (전신 캡슐 & 본 카르만 물리 활성)";
+          }
+          return customImagePermissionGranted;
+        } catch (e) {
+          console.error(e);
+          return false;
+        } finally {
+          customImagePermissionPending = null;
+        }
+      })();
+      return customImagePermissionPending;
+    }
+
+    async function loadProjectileItemInVTS(fileName, spec, x0, y0, rot0, uniqueOrder) {
+      if (!isAuthenticated) return null;
+
+      // 1) VTS StreamingAssets/Items 폴더에 존재하는 파일명(예: image-removebg-preview.png 또는 기본 아이템)이면
+      //    권한 팝업 없이 즉시 네이티브 ItemLoadRequest로 로드 시도
+      if (!spec.isCustomUpload || spec.nativeFileName === "image-removebg-preview.png") {
+        const targetNativeName = spec.nativeFileName || fileName;
+        const nativeRes = await sendVTS("ItemLoadRequest", {
+          fileName: targetNativeName,
+          positionX: x0,
+          positionY: y0,
+          size: spec.size,
+          rotation: rot0,
+          fadeTime: 0.0,
+          order: uniqueOrder,
+          failIfOrderTaken: false,
+          smoothing: 0.0,
+          censored: false,
+          flipped: false,
+          locked: false,
+          unloadWhenPluginDisconnects: true
+        }, 5000);
+        if (nativeRes?.data?.instanceID) {
+          return nativeRes.data.instanceID;
+        }
+        // 씬 아이템 한도 초과(errorID 752 등)인 경우 재시도하지 않고 즉시 중단
+        if (!spec.isCustomUpload || nativeRes?.data?.errorID === 752) {
+          return null;
+        }
+      }
+
+      // 2) 브라우저에서 업로드한 커스텀 이미지(customDataBase64):
+      //    VTS 규격(영숫자+하이픈, 8~32자, .png)을 만족하는 파일명으로 단일 요청 수행
+      if (spec.isCustomUpload && spec.customDataBase64) {
+        const validCustomFileName = buildValidVtsCustomFileName(spec.vtsFileName || fileName, 1);
+        const buildCustomPayload = (askFirst = false) => ({
+          fileName: validCustomFileName,
+          positionX: x0,
+          positionY: y0,
+          size: spec.size,
+          rotation: rot0,
+          fadeTime: 0.0,
+          order: uniqueOrder,
+          failIfOrderTaken: false,
+          smoothing: 0.0,
+          censored: false,
+          flipped: false,
+          locked: false,
+          unloadWhenPluginDisconnects: true,
+          customDataBase64: spec.customDataBase64,
+          customDataAskUserFirst: askFirst,
+          customDataSkipAskingUserIfWhitelisted: true,
+          customDataAskTimer: -1
+        });
+
+        let loadRes = await sendVTS("ItemLoadRequest", buildCustomPayload(false), 6000);
+        if (loadRes?.data?.instanceID) {
+          customImagePermissionGranted = true;
+          return loadRes.data.instanceID;
+        }
+
+        const errId = loadRes?.data?.errorID;
+        const errMsg = String(loadRes?.data?.message || "");
+        // 씬 최대 아이템 개수 초과(errorID 752) 시 추가 호출 없이 즉시 중단
+        if (errId === 752 || /cannot load more items|scene is full/i.test(errMsg)) {
+          return null;
+        }
+
+        // 권한 미부여 상태일 때만 1회 PermissionRequest 수행 후 재시도
+        if (!customImagePermissionGranted && /permission/i.test(errMsg)) {
+          await ensureCustomImagePermission();
+          loadRes = await sendVTS("ItemLoadRequest", buildCustomPayload(false), 6000);
+          if (loadRes?.data?.instanceID) {
+            customImagePermissionGranted = true;
+            return loadRes.data.instanceID;
+          }
+        }
+        return null;
+      }
+
+      return null;
+    }
+
+    /**
+     * 투척 시작 위치(x0, y0) 산출:
+     * - randomSpawnPosChk 체크 시: 좌측·우측·상단 외곽 전 영역에서 무작위 시작 위치 생성
+     * - 체크 해제 시: 좌상단 고정 시작 위치(-0.92, 0.55) 사용
+     */
+    function sampleThrowStartPosition(targetY) {
+      if (randomSpawnPosChk && !randomSpawnPosChk.checked) {
+        return { x0: -0.92, y0: 0.55, fromLeft: true };
+      }
+
+      const sector = Math.random();
+      if (sector < 0.36) {
+        // 좌측 외곽 랜덤 높이
+        const x0 = -0.98 + Math.random() * 0.14;
+        const y0 = -0.25 + Math.random() * 1.25;
+        return { x0, y0, fromLeft: true };
+      } else if (sector < 0.72) {
+        // 우측 외곽 랜덤 높이
+        const x0 = 0.84 + Math.random() * 0.14;
+        const y0 = -0.25 + Math.random() * 1.25;
+        return { x0, y0, fromLeft: false };
+      } else {
+        // 상단/대각 상공 랜덤 위치
+        const x0 = -0.88 + Math.random() * 1.76;
+        const y0 = Math.max(targetY + 0.22, 0.82 + Math.random() * 0.28);
+        return { x0, y0, fromLeft: x0 <= capsuleHitBox.bx };
+      }
+    }
+
+    /**
+     * 모델 캡슐 상단 캡(B) 기준 정수리(Crown of the Head) 타겟 좌표 산출
+     */
+    function sampleCrownTargetPosition() {
+      const spineDx = capsuleHitBox.bx - capsuleHitBox.ax;
+      const spineDy = capsuleHitBox.by - capsuleHitBox.ay;
+      const spineLen = Math.hypot(spineDx, spineDy) || 1.0;
+      const ux = spineDx / spineLen;
+      const uy = spineDy / spineLen;
+
+      // 정수리(상단 캡 중심 B ~ 정수리 끝단 사이)에 집중 조준 (약간의 좌우 편차만 허용)
+      const crownHeightOffset = capsuleHitBox.radius * (0.20 + Math.random() * 0.45);
+      const lateralJitter = (Math.random() - 0.5) * capsuleHitBox.radius * 0.45;
+
+      const rawTargetX = capsuleHitBox.bx + ux * crownHeightOffset - uy * lateralJitter;
+      const rawTargetY = capsuleHitBox.by + uy * crownHeightOffset + ux * lateralJitter;
+
+      return {
+        targetX: Math.max(-0.80, Math.min(0.80, rawTargetX)),
+        targetY: Math.max(-0.45, Math.min(0.86, rawTargetY))
+      };
+    }
+
+    async function spawnProjectile(customOptions = {}) {
+      reclaimSettledProjectilesForNewSpawns(1);
+      if (getRemainingSpawnSlots() <= 0) {
+        return;
+      }
+
+      pendingSpawns++;
+      const myGen = ++resetGeneration;
+      if (scheduledResetTimer) {
+        clearTimeout(scheduledResetTimer);
+        scheduledResetTimer = null;
+      }
+
+      try {
+        const resetDelaySec = customOptions.resetDelaySec !== undefined
+          ? customOptions.resetDelaySec
+          : parseFloat(rstSlider.value);
+
+        if (isAuthenticated) {
+          await ensurePreThrowBaselineCaptured();
+        }
+
+        if (getRemainingSpawnSlots() <= 0) {
+          return;
+        }
+
+        let fileName = itemSelect.value;
+        if (fileName === "random") {
+          fileName = THROWABLE_ITEMS[Math.floor(Math.random() * THROWABLE_ITEMS.length)];
+        }
+        const spec = getItemSpec(fileName);
+        const speedMult = Math.max(0.30, parseFloat(speedSlider.value) || 1.0);
+
+        // 1) 정수리(Crown) 목표 지점 산출
+        const { targetX, targetY } = sampleCrownTargetPosition();
+
+        // 2) 투척 시작 위치(랜덤 또는 고정) 산출
+        const { x0, y0, fromLeft } = sampleThrowStartPosition(targetY);
+
+        // 3) 어떤 시작 위치(y0)에서 던지더라도 몸통 측면에 먼저 걸리지 않고 포물선 정점을 거쳐 정수리 위쪽으로 꽂히도록 고각 궤적 산출
+        const flightTime = 0.35 / speedMult;
+        const minHalfGt2 = Math.max(0.22, (targetY - y0) + 0.34);
+        const gravity = Math.max(3.80, (2.0 * minHalfGt2) / (flightTime * flightTime));
+
+        const vx0 = (targetX - x0) / flightTime;
+        const vy0 = (targetY - y0 + 0.5 * gravity * flightTime * flightTime) / flightTime;
+
+        const uniqueOrder = allocateUniqueFrontOrderSlot();
+
+        let instanceID = null;
+        if (isAuthenticated) {
+          inFlightItemLoads++;
+          try {
+            instanceID = await loadProjectileItemInVTS(fileName, spec, x0, y0, 0.0, uniqueOrder);
+          } finally {
+            inFlightItemLoads = Math.max(0, inFlightItemLoads - 1);
+          }
+          // VTS에서 소환에 실패했거나(최대 아이템 한도 도달 등) 도중에 강제 리셋된 경우 물리 연산 배열에 추가하지 않음
+          if (!instanceID) {
+            return;
+          }
+          if (myGen > resetGeneration) {
+            sendVTS("ItemUnloadRequest", {
+              unloadAllInScene: false,
+              unloadAllLoadedByThisPlugin: false,
+              allowUnloadingItemsLoadedByUserOrOtherPlugins: true,
+              instanceIDs: [instanceID],
+              fileNames: []
+            });
+            return;
+          }
+        }
+
+        projectiles.push({
+          instanceID,
+          fileName,
+          label: spec.label,
+          colorFill: spec.colorFill,
+          colorStroke: spec.colorStroke,
+          customImg: spec.imgElement || null,
+          order: uniqueOrder,
+          mass: spec.mass,
+          userSoftness: spec.userSoftness,
+          userAmplitude: spec.userAmplitude,
+          twistStrengthDeg: spec.twistStrengthDeg,
+          softness: spec.softness,
+          isRigidMode: spec.isRigidMode,
+          radius: spec.radius,
+          size: spec.size,
+          restitution: spec.restitution,
+          baseRestitution: spec.baseRestitution,
+          x: x0,
+          y: y0,
+          vx: vx0,
+          vy: vy0,
+          gravity,
+          rot: 0.0,
+          vRot: (fromLeft ? 600.0 : -600.0) * speedMult,
+          hasHit: false,
+          contact: null,
+          vkState: null,
+          resetDelaySec
+        });
+      } finally {
+        pendingSpawns = Math.max(0, pendingSpawns - 1);
+      }
+    }
+
+    async function spawnBarrage(count = 5, intervalMs = 120, resetDelaySec = null) {
+      clearScheduledSpawnTimers();
+      reclaimSettledProjectilesForNewSpawns(count);
+      const allowedCount = Math.min(count, getRemainingSpawnSlots());
+      if (allowedCount <= 0) return;
+
+      const rDelay = resetDelaySec !== null ? resetDelaySec : parseFloat(rstSlider.value);
+      pendingSpawns += allowedCount;
+      resetGeneration++;
+      if (scheduledResetTimer) {
+        clearTimeout(scheduledResetTimer);
+        scheduledResetTimer = null;
+      }
+      if (isAuthenticated) {
+        await ensurePreThrowBaselineCaptured();
+      }
+      for (let i = 0; i < allowedCount; i++) {
+        const tid = setTimeout(async () => {
+          const idx = scheduledSpawnTimers.indexOf(tid);
+          if (idx !== -1) scheduledSpawnTimers.splice(idx, 1);
+          try {
+            if (getRemainingSpawnSlots() > 0) {
+              await spawnProjectile({ resetDelaySec: rDelay });
+            }
+          } finally {
+            pendingSpawns = Math.max(0, pendingSpawns - 1);
+          }
+        }, i * intervalMs);
+        scheduledSpawnTimers.push(tid);
+      }
+    }
+
+    async function spawnAvalanche(count = 20, intervalMs = 55, resetDelaySec = null) {
+      // 이전 미완료 소환 예약 타이머를 정리하고, 최대 소환 가능 슬롯(vtsMaxSpawnableItems) 이내로만 엄격히 제한
+      clearScheduledSpawnTimers();
+      reclaimSettledProjectilesForNewSpawns(count);
+      const allowedCount = Math.min(count, getRemainingSpawnSlots());
+      if (allowedCount <= 0) return;
+
+      const rDelay = resetDelaySec !== null ? resetDelaySec : Math.max(0.8, parseFloat(rstSlider.value));
+      pendingSpawns += allowedCount;
+      const batchGen = ++resetGeneration;
+      if (scheduledResetTimer) {
+        clearTimeout(scheduledResetTimer);
+        scheduledResetTimer = null;
+      }
+
+      if (isAuthenticated) {
+        await ensurePreThrowBaselineCaptured();
+      }
+
+      for (let i = 0; i < allowedCount; i++) {
+        const tid = setTimeout(async () => {
+          const idx = scheduledSpawnTimers.indexOf(tid);
+          if (idx !== -1) scheduledSpawnTimers.splice(idx, 1);
+          try {
+            reclaimSettledProjectilesForNewSpawns(1);
+            // 현재 활성+로딩 중 아이템 수가 최대 소환 가능 한도에 도달하면 추가 API 호출 및 물리 연산을 즉시 건너뜀
+            if (getRemainingSpawnSlots() <= 0) {
+              return;
+            }
+
+            let fileName = itemSelect.value;
+            if (fileName === "random") {
+              fileName = THROWABLE_ITEMS[Math.floor(Math.random() * THROWABLE_ITEMS.length)];
+            }
+            const spec = getItemSpec(fileName);
+            const speedMult = Math.max(0.30, parseFloat(speedSlider.value) || 1.0);
+
+            const spread = (Math.random() - 0.5) * 0.52;
+            const x0 = Math.max(-0.75, Math.min(0.75, capsuleHitBox.bx + spread));
+            const y0 = 1.08 + Math.random() * 0.25;
+            const vx0 = (Math.random() - 0.5) * 0.28 * speedMult;
+            const vy0 = (-0.7 - Math.random() * 0.8) * speedMult;
+            const rot0 = Math.random() * 360.0;
+
+            const uniqueOrder = allocateUniqueFrontOrderSlot();
+
+            let instanceID = null;
+            if (isAuthenticated) {
+              inFlightItemLoads++;
+              try {
+                instanceID = await loadProjectileItemInVTS(fileName, spec, x0, y0, rot0, uniqueOrder);
+              } finally {
+                inFlightItemLoads = Math.max(0, inFlightItemLoads - 1);
+              }
+              // VTS 소환 실패(최대 한도 도달 등) 시 연산 배열(projectiles)에 넣지 않고 즉시 중단
+              if (!instanceID) {
+                return;
+              }
+              if (batchGen > resetGeneration) {
+                sendVTS("ItemUnloadRequest", {
+                  unloadAllInScene: false,
+                  unloadAllLoadedByThisPlugin: false,
+                  allowUnloadingItemsLoadedByUserOrOtherPlugins: true,
+                  instanceIDs: [instanceID],
+                  fileNames: []
+                });
+                return;
+              }
+            }
+
+            projectiles.push({
+              instanceID,
+              fileName,
+              label: spec.label,
+              colorFill: spec.colorFill,
+              colorStroke: spec.colorStroke,
+              customImg: spec.imgElement || null,
+              order: uniqueOrder,
+              isPile: true,
+              settled: false,
+              stillTime: 0.0,
+              age: 0.0,
+              mass: spec.mass,
+              userSoftness: spec.userSoftness,
+              userAmplitude: spec.userAmplitude,
+              twistStrengthDeg: spec.twistStrengthDeg,
+              softness: spec.softness,
+              isRigidMode: spec.isRigidMode,
+              radius: spec.radius * 1.08,
+              size: spec.size,
+              restitution: spec.restitution * 0.65,
+              baseRestitution: spec.baseRestitution * 0.65,
+              x: x0,
+              y: y0,
+              vx: vx0,
+              vy: vy0,
+              gravity: 3.40,
+              rot: rot0,
+              vRot: (Math.random() - 0.5) * 520.0 * speedMult,
+              hasHit: false,
+              contact: null,
+              vkState: null,
+              resetDelaySec: rDelay
+            });
+          } finally {
+            pendingSpawns = Math.max(0, pendingSpawns - 1);
+          }
+        }, i * intervalMs);
+        scheduledSpawnTimers.push(tid);
+      }
+    }
+
+    const EXP_MAP = {
+      shock: "Shock Sign",
+      cry: "Eyes Cry",
+      angry: "Angry Sign",
+      heart: "Heart Eyes"
+    };
+
+    async function triggerImpactEffects(forceX, forceY, damping, expKey) {
+      if (!isAuthenticated) return;
+
+      const kbUser = parseFloat(kbSlider.value) || 0.45;
+      const forceScale = Math.min(2.2, Math.hypot(forceX, forceY) / 25.0) * kbUser;
+      const normFx = Math.max(-1.5, Math.min(1.5, (forceX / 25.0) * kbUser));
+      const normFy = Math.max(-1.5, Math.min(1.5, (forceY / 25.0) * kbUser));
+
+      if (physicsGroupIds.length > 0) {
+        const windVal = Math.max(-100, Math.min(100, 68 * normFx));
+        const strVal = Math.min(100, 50 + 40 * forceScale);
+        const dur = Math.max(0.4, Math.min(1.5, 3.6 / damping));
+        sendVTS("SetCurrentModelPhysicsRequest", {
+          strengthOverrides: physicsGroupIds.map(id => ({ id, value: strVal, setBaseValue: false, overrideSeconds: dur })),
+          windOverrides: physicsGroupIds.map(id => ({ id, value: windVal, setBaseValue: false, overrideSeconds: dur }))
+        });
+      }
+
+      // 상대 좌표 MoveModelRequest 대신 Default 위치(baselineModelPos) 및 Default 포즈 기준
+      // 2차 스프링-댐퍼 상태(avatarRestoreState)에 충격 속도 임펄스를 주입하여
+      // 인터랙션 후 Default 위치에서 멀어지더라도 약한 복원력(kr)과 댐핑(cr)으로 자연스럽게 복원되도록 처리
+      avatarRestoreState.active = true;
+      avatarRestoreState.vx = Math.max(-1.6, Math.min(1.6, avatarRestoreState.vx + 0.85 * normFx));
+      avatarRestoreState.vy = Math.max(-1.2, Math.min(0.6, avatarRestoreState.vy + Math.min(0.28, 0.52 * normFy - 0.18 * Math.abs(normFx))));
+      avatarRestoreState.vRot = Math.max(-120.0, Math.min(120.0, avatarRestoreState.vRot + 64.0 * normFx));
+
+      avatarRestoreState.poseVel.FaceAngleX += 85.0 * normFx;
+      avatarRestoreState.poseVel.FaceAngleY += 68.0 * normFy - 38.0 * Math.abs(normFx);
+      avatarRestoreState.poseVel.FaceAngleZ += 72.0 * normFx;
+      avatarRestoreState.poseVel.FacePositionX += 14.0 * normFx;
+      avatarRestoreState.poseVel.FacePositionY += 11.0 * normFy - 6.0 * Math.abs(normFx);
+
+      let targetExpFile = expKey && expKey.endsWith(".exp3.json") ? expKey : null;
+      let fallbackHotkeyId = null;
+
+      if (!targetExpFile && EXP_MAP[expKey]) {
+        const hk = availableHotkeys.find(h => h.name === EXP_MAP[expKey]);
+        if (hk) {
+          if (hk.file && hk.file.endsWith(".exp3.json")) {
+            targetExpFile = hk.file;
+          } else {
+            fallbackHotkeyId = hk.hotkeyID;
+          }
+        }
+      }
+
+      if (targetExpFile) {
+        for (const [prevFile, wasActive] of Object.entries(baselineExpressions)) {
+          if (wasActive && prevFile !== targetExpFile) {
+            sendVTS("ExpressionActivationRequest", { expressionFile: prevFile, active: false });
+          }
+        }
+        sendVTS("ExpressionActivationRequest", {
+          expressionFile: targetExpFile,
+          active: true
+        });
+      } else if (fallbackHotkeyId) {
+        sendVTS("HotkeyTriggerRequest", { hotkeyID: fallbackHotkeyId });
+      }
+    }
+
+    function vtsToPixel(vtsX, vtsY) {
+      return {
+        x: (vtsX + 1.0) * 0.5 * canvas.width,
+        y: (1.0 - (vtsY + 1.0) * 0.5) * canvas.height
+      };
+    }
+
+    function drawFullBodyCapsuleHitBox() {
+      if (!showDebugChk.checked) return;
+
+      ctx.save();
+      const pA = vtsToPixel(capsuleHitBox.ax, capsuleHitBox.ay);
+      const pB = vtsToPixel(capsuleHitBox.bx, capsuleHitBox.by);
+      const rPx = capsuleHitBox.radius * 0.5 * canvas.height;
+      const angle = Math.atan2(pB.y - pA.y, pB.x - pA.x);
+
+      ctx.beginPath();
+      ctx.arc(pA.x, pA.y, rPx, angle + Math.PI * 0.5, angle - Math.PI * 0.5, false);
+      ctx.arc(pB.x, pB.y, rPx, angle - Math.PI * 0.5, angle + Math.PI * 0.5, false);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(16, 185, 129, 0.10)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.90)";
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.55)";
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(pA.x, pA.y);
+      ctx.lineTo(pB.x, pB.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.restore();
+    }
+
+    /**
+     * 오버헤드 0 최적화를 위한 2D 아핀 변환(Affine Transform: ctx.transform) 기반 투사체 렌더링:
+     * - 강체 모드(p.isRigidMode): 아핀 변형 행렬 계산 없이 순수 원형 강체만 렌더링
+     * - 본 카르만 변형 활성 시:
+     *   충돌 법선축(normalAngle)을 기준으로 법선축 압축/팽창(lambdaN) 및 접선축 팽창/수축(lambdaT)을
+     *   단일 2D 아핀 변환 행렬 ctx.transform(cosθ*λ_n, sinθ*λ_n, -sinθ*λ_t, cosθ*λ_t, px.x, px.y)로 렌더링
+     */
+    function drawVonKarmanDeformingProjectile(p, vkDef) {
+      const renderX = p.x + (vkDef.active ? vkDef.shiftX : 0.0);
+      const renderY = p.y + (vkDef.active ? vkDef.shiftY : 0.0);
+      const px = vtsToPixel(renderX, renderY);
+      const rPx = Math.max(6, (p.radius || 0.095) * 0.5 * canvas.height);
+
+      ctx.save();
+
+      if (p.isRigidMode || !vkDef.active) {
+        // [강체 모드 또는 비변형 상태]: 아핀 변형 오버헤드 0
+        ctx.translate(px.x, px.y);
+        const rotRad = ((p.rot || 0) * Math.PI) / 180.0;
+        if (p.customImg && p.customImg.complete && p.customImg.naturalWidth > 0) {
+          ctx.save();
+          ctx.rotate(rotRad);
+          ctx.drawImage(p.customImg, -rPx, -rPx, rPx * 2, rPx * 2);
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, rPx, 0, Math.PI * 2);
+          ctx.fillStyle = p.colorFill || "rgba(99, 102, 241, 0.48)";
+          ctx.fill();
+          ctx.strokeStyle = p.colorStroke || "#818cf8";
+          ctx.lineWidth = 2.0;
+          ctx.stroke();
+
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(rotRad) * rPx * 0.72, Math.sin(rotRad) * rPx * 0.72);
+          ctx.stroke();
+        }
+
+        if (showDebugChk.checked && p.isRigidMode) {
+          ctx.font = "bold 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillStyle = "#f87171";
+          ctx.fillText(`${p.label || "Obj"} [강체]`, -24, -rPx - 6);
+        }
+        ctx.restore();
+        return;
+      }
+
+      // 화면 픽셀 좌표계에서의 충돌 법선축 각도 (VTS Y축 +는 위쪽 -> 픽셀 Y는 -outNy)
+      const normalAngle = (p.vkState && (p.vkState.outNx !== 0 || p.vkState.outNy !== 0))
+        ? Math.atan2(-p.vkState.outNy, p.vkState.outNx)
+        : 0.0;
+      const cosN = Math.cos(normalAngle);
+      const sinN = Math.sin(normalAngle);
+      const ln = vkDef.lambdaN;
+      const lt = vkDef.lambdaT;
+
+      // 단일 2D 아핀 변환 행렬(Affine Transform Matrix) 직접 주입 (오버헤드 0)
+      ctx.transform(cosN * ln, sinN * ln, -sinN * lt, cosN * lt, px.x, px.y);
+
+      if (p.customImg && p.customImg.complete && p.customImg.naturalWidth > 0) {
+        const bodyRotRad = ((p.rot || 0) * Math.PI) / 180.0;
+        ctx.save();
+        ctx.rotate(bodyRotRad - normalAngle);
+        ctx.drawImage(p.customImg, -rPx, -rPx, rPx * 2, rPx * 2);
+        ctx.restore();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, rPx, 0, Math.PI * 2);
+        ctx.fillStyle = p.colorFill || "rgba(99, 102, 241, 0.55)";
+        ctx.fill();
+        ctx.strokeStyle = p.colorStroke || "#a5b4fc";
+        ctx.lineWidth = 2.2 / Math.sqrt(Math.max(0.25, ln * lt));
+        ctx.stroke();
+      }
+
+      // 법선 압축축(빨강) 및 접선 팽창축(하늘) 표시
+      if (showDebugChk.checked) {
+        ctx.strokeStyle = "rgba(244, 63, 94, 0.90)";
+        ctx.lineWidth = 1.6 / Math.max(0.3, ln);
+        ctx.beginPath();
+        ctx.moveTo(-rPx, 0);
+        ctx.lineTo(rPx, 0);
+        ctx.stroke();
+
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.90)";
+        ctx.lineWidth = 1.6 / Math.max(0.3, lt);
+        ctx.beginPath();
+        ctx.moveTo(0, -rPx);
+        ctx.lineTo(0, rPx);
+        ctx.stroke();
+
+        ctx.fillStyle = vkDef.inContactPhase ? "#22c55e" : "#f43f5e";
+        ctx.beginPath();
+        ctx.arc(-rPx, 0, 3.8 / Math.max(0.3, ln), 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+
+      if (showDebugChk.checked) {
+        ctx.save();
+        ctx.font = "bold 11px ui-monospace, SFMono-Regular, Menlo, monospace";
+        ctx.fillStyle = vkDef.inContactPhase ? "#86efac" : "#fde047";
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.92)";
+        ctx.lineWidth = 3;
+        const phaseTag = vkDef.inContactPhase ? "부착압축(B-Spline)" : "이탈팽창진동";
+        const txt = `${p.label || "Obj"} [${phaseTag} f:${vkDef.frequencyHz}Hz, λn:${ln.toFixed(2)}, λt:${lt.toFixed(2)}]`;
+        ctx.strokeText(txt, px.x - 65, px.y - rPx * lt - 8);
+        ctx.fillText(txt, px.x - 65, px.y - rPx * lt - 8);
+        ctx.restore();
+      }
+    }
+
+    // =========================================================================
+    // 6. 60Hz 메인 물리 시뮬레이션 루프
+    // =========================================================================
+    let lastTime = performance.now();
+    let wasAnimating = false;
+    let lastResetDelaySec = 0.8;
+    let moveInFlight = false;
+    let injectInFlight = false;
+
+    function tick(nowMs) {
+      const dt = Math.min(0.033, (nowMs - lastTime) / 1000);
+      lastTime = nowMs;
+      const nowSec = nowMs / 1000;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      capsuleHitBox.netForceX = 0.0;
+      capsuleHitBox.netForceY = 0.0;
+
+      const itemsToMove = [];
+      const unloadIds = [];
+      const floorY = -0.82;
+      const wallX = 0.88;
+
+      // 1. 모든 투사체 운동 적분 (또는 반주기 접촉 B-Spline 법선 침투) 및 전신 캡슐 히트박스 상시 충돌 판정
+      for (let i = projectiles.length - 1; i >= 0; i--) {
+        const p = projectiles[i];
+        lastResetDelaySec = p.resetDelaySec;
+        p.age = (p.age || 0) + dt;
+
+        // 반주기(1/2f) 표면 부착 페이즈 중이면 B-Spline 법선 침투 위치 애니메이팅을 수행하고 일반 자유낙하 적분 생략
+        const isSticking = updateProjectileContactPhase(p, dt, nowSec);
+
+        if (!isSticking && !p.settled) {
+          p.x += p.vx * dt;
+          p.y += p.vy * dt - 0.5 * p.gravity * dt * dt;
+          p.vy -= p.gravity * dt;
+          p.rot = (p.rot + p.vRot * dt) % 360.0;
+        }
+
+        const col = resolveAvatarCapsuleCollision(p, dt, nowSec, true);
+        if (col.collided) {
+          p.settled = false;
+          p.stillTime = 0;
+
+          const canTriggerReaction = !p.hasHit || (col.normalSpeed > 0.45 && (nowSec - (p.lastHitTime || 0)) > 0.22);
+          if (canTriggerReaction) {
+            const isFirstHit = !p.hasHit;
+            p.hasHit = true;
+            p.lastHitTime = nowSec;
+
+            // 강체 모드가 아닐 때만 본 카르만 타원 진동 특성(주파수, 반주기, 진폭) 산출 및 물체별 캐시 저장
+            if (!p.isRigidMode && (p.softness ?? 0) > 0.001) {
+              computeAndCacheVonKarmanVibration(p, col.outNx, col.outNy, col.normalSpeed, nowSec);
+            }
+
+            const kbScale = isFirstHit ? (p.isPile ? 0.55 : 1.0) : 0.30;
+            const kb = parseFloat(kbSlider.value) * kbScale;
+            const dmp = parseFloat(dmpSlider.value);
+            const exp = expSelect.value;
+
+            activeImpulses.push({
+              t0: nowSec,
+              forceX: col.forceX * kbScale,
+              forceY: col.forceY * kbScale,
+              intensity: kb * Math.min(2.0, (p.mass || 0.38) / 0.35),
+              damping: dmp,
+              exp,
+              duration: Math.max(0.55, Math.min(1.5, 4.5 / dmp))
+            });
+
+            if (isFirstHit) {
+              triggerImpactEffects(col.forceX * kbScale, col.forceY * kbScale, dmp, exp);
+            }
+          }
+        }
+
+        // 바닥(Floor) 충돌 및 감쇠 바운스 (단일 투척, 연속 투척, 와르르 적층 모든 투사체 공통 적용)
+        if (!p.contact && p.y <= floorY) {
+          const impactVy = Math.abs(p.vy);
+          p.y = floorY;
+          const isRigid = p.isRigidMode || (p.softness ?? 0) <= 0.001;
+          const s = Math.max(0.0, Math.min(1.0, p.softness ?? 0.55));
+          const baseRest = p.baseRestitution ?? p.restitution ?? 0.30;
+          const floorRest = isRigid ? baseRest : Math.max(0.02, baseRest * Math.pow(1.0 - 0.75 * s, 1.4));
+
+          if (impactVy > 0.14) {
+            if (!isRigid && impactVy > 0.40 && (nowSec - (p.lastFloorVkTime || 0)) > 0.20) {
+              const r = computeVonKarmanParams(p, impactVy);
+              p.lastFloorVkTime = nowSec;
+              computeAndCacheVonKarmanVibration(p, 0.0, 1.0, impactVy, nowSec);
+              p.contact = {
+                type: "floor",
+                t0: nowSec,
+                halfPeriodSec: r.halfPeriodSec,
+                amplitude: r.amplitude,
+                anchorX: p.x,
+                floorY,
+                outNx: 0.0,
+                outNy: 1.0,
+                tx: 1.0,
+                ty: 0.0,
+                tanVel: p.vx * 0.65,
+                tanOffset: 0.0,
+                releaseSpeed: impactVy * floorRest,
+                releaseVx: p.vx * 0.65,
+                releaseVy: impactVy * floorRest
+              };
+              p.vx *= 0.25;
+              p.vy = 0.0;
+              p.vRot *= 0.65;
+            } else {
+              p.vy = impactVy * floorRest;
+              p.vx *= (isRigid ? 0.82 : 0.65);
+              p.vRot *= 0.68;
+            }
+          } else {
+            p.vy = 0.0;
+            p.vx *= 0.60;
+            p.vRot *= 0.55;
+            if (Math.abs(p.vx) < 0.03) {
+              p.vx = 0.0;
+              p.vRot = 0.0;
+              p.settled = true;
+            }
+          }
+        }
+
+        // 좌우 벽면 제한
+        if (p.x < -wallX) {
+          p.x = -wallX;
+          p.vx = Math.abs(p.vx) * 0.45;
+        } else if (p.x > wallX) {
+          p.x = wallX;
+          p.vx = -Math.abs(p.vx) * 0.45;
+        }
+
+        // 화면 밖 완전히 이탈 시 정리
+        if (p.y < -1.15 || Math.abs(p.x) > 1.45) {
+          if (p.instanceID) unloadIds.push(p.instanceID);
+          projectiles.splice(i, 1);
+          continue;
+        }
+      }
+
+      // 1-2. 질량 가중 물체 간 상호 적층 충돌 + 전신 캡슐 히트박스 재충돌 해결 (3회 반복, 최대 소환 가능 슬롯 이내 활성 객체만 연산)
+      const pileItems = projectiles.filter(p => p.isPile && !p.contact);
+      for (let iter = 0; iter < 3; iter++) {
+        for (let i = 0; i < pileItems.length; i++) {
+          for (let j = i + 1; j < pileItems.length; j++) {
+            const a = pileItems[i];
+            const b = pileItems[j];
+            if (a.settled && b.settled) continue;
+            const minDist = (a.radius || 0.10) + (b.radius || 0.10);
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 0.0001 && dist < minDist) {
+              const overlap = minDist - dist;
+              const nx = dx / dist;
+              const ny = dy / dist;
+
+              const mA = a.y <= floorY + 0.01 ? (a.mass * 8.0) : (a.mass || 0.35);
+              const mB = b.y <= floorY + 0.01 ? (b.mass * 8.0) : (b.mass || 0.35);
+              const invA = 1.0 / mA;
+              const invB = 1.0 / mB;
+              const invSum = invA + invB;
+              const weightA = invA / invSum;
+              const weightB = invB / invSum;
+
+              a.x -= nx * overlap * weightA;
+              a.y = Math.max(floorY, a.y - ny * overlap * weightA);
+              b.x += nx * overlap * weightB;
+              b.y = Math.max(floorY, b.y + ny * overlap * weightB);
+
+              const rvx = b.vx - a.vx;
+              const rvy = b.vy - a.vy;
+              const velAlongNormal = rvx * nx + rvy * ny;
+              if (velAlongNormal < 0) {
+                const vnPair = -velAlongNormal;
+                const eA = a.isRigidMode ? (a.baseRestitution || 0.25) : computeVonKarmanParams(a, vnPair).eEff;
+                const eB = b.isRigidMode ? (b.baseRestitution || 0.25) : computeVonKarmanParams(b, vnPair).eEff;
+                const e = Math.min(eA, eB);
+                const jImp = -(1.0 + e) * velAlongNormal / invSum;
+                a.vx -= (jImp * nx) * invA;
+                a.vy -= (jImp * ny) * invA;
+                b.vx += (jImp * nx) * invB;
+                b.vy += (jImp * ny) * invB;
+                a.vx *= 0.86;
+                b.vx *= 0.86;
+                a.vRot *= 0.72;
+                b.vRot *= 0.72;
+                a.settled = false;
+                b.settled = false;
+
+                if (iter === 0 && vnPair > 0.55) {
+                  if (!a.isRigidMode) computeAndCacheVonKarmanVibration(a, -nx, -ny, vnPair, nowSec);
+                  if (!b.isRigidMode) computeAndCacheVonKarmanVibration(b, nx, ny, vnPair, nowSec);
+                }
+              }
+            }
+          }
+          const p = pileItems[i];
+          if (!p.settled) {
+            resolveAvatarCapsuleCollision(p, dt, nowSec, false);
+            if (p.y < floorY) p.y = floorY;
+            if (p.x < -wallX) p.x = -wallX;
+            if (p.x > wallX) p.x = wallX;
+          }
+        }
+      }
+
+      // 합뉴턴 지수 이동평균 필터링
+      const alpha = Math.min(1.0, dt * 14.0);
+      capsuleHitBox.smoothForceX += (capsuleHitBox.netForceX - capsuleHitBox.smoothForceX) * alpha;
+      capsuleHitBox.smoothForceY += (capsuleHitBox.netForceY - capsuleHitBox.smoothForceY) * alpha;
+
+      // 1-3. 전신 캡슐 히트박스 렌더링
+      drawFullBodyCapsuleHitBox();
+
+      // 1-4. 안착 판정, VTS 충돌축 진동 & 상대각 비틀림 요동 반영, 아핀 변환 렌더링
+      for (let i = 0; i < projectiles.length; i++) {
+        const p = projectiles[i];
+        if (!p.settled && !p.contact) {
+          const speed = Math.hypot(p.vx, p.vy);
+          if ((speed < 0.08 && p.y <= floorY + 0.04) || p.age > (p.isPile ? 2.8 : 1.8)) {
+            p.stillTime = (p.stillTime || 0) + dt;
+            if (p.stillTime > 0.20 || p.age > (p.isPile ? 2.8 : 1.8)) {
+              p.vx = 0;
+              p.vy = 0;
+              p.vRot = 0;
+              p.settled = true;
+            }
+          } else {
+            p.stillTime = 0;
+          }
+        }
+
+        const vkDef = evaluateVonKarmanEllipticDeformation(p, nowSec);
+
+        if (p.instanceID) {
+          // VTube Studio 화면 내 충돌 후 아이템 진동 애니메이션 동기화:
+          // 1) 충돌 법선축 방향 진동 변위 (shiftX, shiftY): 반주기 B-Spline 법선 침투 및 이탈 후 충돌축(outNx, outNy) 방향 진동
+          // 2) 전단 변형 및 회전 비틀림 요동 (vtsRot): 상대각(deltaPhi)에 따른 회전 비틀림 요동
+          // 3) 투영 단면 크기 (vtsSize): 상대각에 따른 기하학적 단면 비율만 완만히 반영
+          const vtsSize = vkDef.active ? vkDef.vtsSize : p.size;
+          const vtsRot = vkDef.active ? vkDef.vtsRot : ((p.rot + 360.0) % 360.0);
+          const vtsX = p.x + (vkDef.active ? vkDef.shiftX : 0.0);
+          const vtsY = p.y + (vkDef.active ? vkDef.shiftY : 0.0);
+
+          itemsToMove.push({
+            itemInstanceID: p.instanceID,
+            timeInSeconds: 0.0,
+            fadeMode: "linear",
+            positionX: vtsX,
+            positionY: vtsY,
+            size: vtsSize,
+            rotation: vtsRot,
+            order: -1000,
+            setFlip: false,
+            flip: false,
+            userCanStop: false
+          });
+        }
+
+        drawVonKarmanDeformingProjectile(p, vkDef);
+      }
+
+      // HUD 실시간 합뉴턴(∑F) 및 캡슐 오프셋 캐시 정보 표시
+      const fTotal = Math.hypot(capsuleHitBox.smoothForceX, capsuleHitBox.smoothForceY);
+      const fxSign = capsuleHitBox.smoothForceX >= 0 ? "+" : "";
+      const fySign = capsuleHitBox.smoothForceY >= 0 ? "+" : "";
+      const rel = window.capsuleRelationCache;
+      forceReadout.innerHTML =
+        `∑F (합뉴턴): <strong>${fTotal.toFixed(2)} N</strong> (Fx: ${fxSign}${capsuleHitBox.smoothForceX.toFixed(2)}, Fy: ${fySign}${capsuleHitBox.smoothForceY.toFixed(2)})<br/>` +
+        `캡슐 캐시: L=${rel.length.toFixed(2)}, R=${rel.radius.toFixed(3)}, Off=(${rel.offsetX >= 0 ? "+" : ""}${rel.offsetX.toFixed(2)}, ${rel.offsetY >= 0 ? "+" : ""}${rel.offsetY.toFixed(2)})`;
+
+      if (isAuthenticated && itemsToMove.length > 0 && !moveInFlight) {
+        moveInFlight = true;
+        sendVTS("ItemMoveRequest", { itemsToMove }).finally(() => {
+          moveInFlight = false;
+        });
+      }
+
+      if (isAuthenticated && unloadIds.length > 0) {
+        sendVTS("ItemUnloadRequest", {
+          unloadAllInScene: false,
+          unloadAllLoadedByThisPlugin: false,
+          allowUnloadingItemsLoadedByUserOrOtherPlugins: true,
+          instanceIDs: unloadIds,
+          fileNames: []
+        });
+      }
+
+      // 2. Live2D 모델 Default 위치·포즈 약한 복원력(kr) & 댐핑(cr) 연속 적분 및 합뉴턴(∑F) 파라미터 주입
+      const kr = parseFloat(restoreStiffSlider.value) || 3.5;
+      const cr = parseFloat(restoreDampSlider.value) || 3.0;
+      const kbUser = parseFloat(kbSlider.value) || 0.45;
+      const contFx = Math.max(-1.2, Math.min(1.2, (capsuleHitBox.smoothForceX / 35.0) * kbUser));
+      const contFy = Math.max(-1.2, Math.min(1.2, (capsuleHitBox.smoothForceY / 35.0) * kbUser));
+      if (Math.hypot(contFx, contFy) > 0.015) {
+        avatarRestoreState.active = true;
+      }
+
+      if (avatarRestoreState.active) {
+        // Default 위치(baselineModelPos) 기준 2차 스프링-댐퍼 운동 방정식: a = F_contact - kr * dx - cr * v
+        const ax = 0.22 * contFx - kr * avatarRestoreState.dx - cr * avatarRestoreState.vx;
+        const ay = 0.14 * contFy - kr * avatarRestoreState.dy - cr * avatarRestoreState.vy;
+        const aRot = 18.0 * contFx - kr * avatarRestoreState.dRot - cr * avatarRestoreState.vRot;
+
+        avatarRestoreState.vx += ax * dt;
+        avatarRestoreState.vy += ay * dt;
+        avatarRestoreState.vRot += aRot * dt;
+
+        avatarRestoreState.dx = Math.max(-0.45, Math.min(0.45, avatarRestoreState.dx + avatarRestoreState.vx * dt));
+        avatarRestoreState.dy = Math.max(-0.35, Math.min(0.35, avatarRestoreState.dy + avatarRestoreState.vy * dt));
+        avatarRestoreState.dRot = Math.max(-28.0, Math.min(28.0, avatarRestoreState.dRot + avatarRestoreState.vRot * dt));
+
+        // Default 포즈(0.0) 기준 2차 스프링-댐퍼 적분
+        const poseTargets = {
+          FaceAngleX: 10.0 * contFx,
+          FaceAngleY: 8.0 * contFy,
+          FaceAngleZ: 9.0 * contFx,
+          FacePositionX: 1.8 * contFx,
+          FacePositionY: 1.4 * contFy
+        };
+        const krPose = kr * 1.15;
+        const crPose = cr * 1.10;
+        for (const key of Object.keys(avatarRestoreState.pose)) {
+          const disp = avatarRestoreState.pose[key];
+          const vel = avatarRestoreState.poseVel[key];
+          const acc = poseTargets[key] - krPose * disp - crPose * vel;
+          const nextVel = vel + acc * dt;
+          const nextDisp = Math.max(-30.0, Math.min(30.0, disp + nextVel * dt));
+          avatarRestoreState.poseVel[key] = nextVel;
+          avatarRestoreState.pose[key] = nextDisp;
+        }
+
+        const posErr = Math.hypot(avatarRestoreState.dx, avatarRestoreState.dy) + Math.abs(avatarRestoreState.dRot) * 0.01;
+        const velNorm = Math.hypot(avatarRestoreState.vx, avatarRestoreState.vy) + Math.abs(avatarRestoreState.vRot) * 0.01;
+        const poseErr =
+          Math.abs(avatarRestoreState.pose.FaceAngleX) +
+          Math.abs(avatarRestoreState.pose.FaceAngleY) +
+          Math.abs(avatarRestoreState.pose.FaceAngleZ) +
+          Math.abs(avatarRestoreState.pose.FacePositionX) +
+          Math.abs(avatarRestoreState.pose.FacePositionY);
+
+        if (posErr < 0.0008 && velNorm < 0.002 && poseErr < 0.04 && Math.hypot(contFx, contFy) < 0.015) {
+          clearAvatarRestoreState();
+          if (isAuthenticated && baselineModelPos && !modelMoveInFlight) {
+            modelMoveInFlight = true;
+            sendVTS("MoveModelRequest", {
+              timeInSeconds: 0.05,
+              valuesAreRelativeToModel: false,
+              positionX: baselineModelPos.positionX,
+              positionY: baselineModelPos.positionY,
+              rotation: baselineModelPos.rotation,
+              size: baselineModelPos.size
+            }).finally(() => {
+              modelMoveInFlight = false;
+            });
+            computeFullBodyCapsuleFromModelPos(baselineModelPos);
+          }
+        } else if (baselineModelPos) {
+          const curModelPos = {
+            positionX: baselineModelPos.positionX + avatarRestoreState.dx,
+            positionY: baselineModelPos.positionY + avatarRestoreState.dy,
+            rotation: baselineModelPos.rotation + avatarRestoreState.dRot,
+            size: baselineModelPos.size
+          };
+          computeFullBodyCapsuleFromModelPos(curModelPos);
+          if (isAuthenticated && !modelMoveInFlight) {
+            modelMoveInFlight = true;
+            sendVTS("MoveModelRequest", {
+              timeInSeconds: 0.0,
+              valuesAreRelativeToModel: false,
+              positionX: curModelPos.positionX,
+              positionY: curModelPos.positionY,
+              rotation: curModelPos.rotation,
+              size: curModelPos.size
+            }).finally(() => {
+              modelMoveInFlight = false;
+            });
+          }
+        }
+      }
+
+      if (isAuthenticated && (activeImpulses.length > 0 || avatarRestoreState.active) && !injectInFlight) {
+        const accum = {
+          FaceAngleX: avatarRestoreState.pose.FaceAngleX,
+          FaceAngleY: avatarRestoreState.pose.FaceAngleY,
+          FaceAngleZ: avatarRestoreState.pose.FaceAngleZ,
+          FacePositionX: avatarRestoreState.pose.FacePositionX,
+          FacePositionY: avatarRestoreState.pose.FacePositionY
+        };
+
+        for (let i = activeImpulses.length - 1; i >= 0; i--) {
+          const imp = activeImpulses[i];
+          const t = nowSec - imp.t0;
+          if (t > imp.duration) {
+            activeImpulses.splice(i, 1);
+            continue;
+          }
+          const env = Math.exp(-imp.damping * t);
+          const osc = Math.cos(2 * Math.PI * 3.4 * t);
+          const normFx = Math.max(-1.5, Math.min(1.5, imp.forceX / 22.0)) * imp.intensity;
+          const normFy = Math.max(-1.5, Math.min(1.5, imp.forceY / 22.0)) * imp.intensity;
+
+          accum.FaceAngleX += 14.0 * normFx * env * osc;
+          accum.FaceAngleY += (11.0 * normFy - 6.0 * Math.abs(normFx)) * env * Math.cos(2 * Math.PI * 2.8 * t);
+          accum.FaceAngleZ += 12.0 * normFx * env * osc;
+          accum.FacePositionX += 2.2 * normFx * env * osc;
+          accum.FacePositionY += (1.7 * normFy - 0.9 * Math.abs(normFx)) * env * Math.abs(osc);
+        }
+
+        const parameterValues = Object.entries(accum).map(([id, val]) => ({
+          id,
+          value: Math.max(-30, Math.min(30, val)),
+          weight: 1.0
+        }));
+
+        injectInFlight = true;
+        sendVTS("InjectParameterDataRequest", {
+          faceFound: true,
+          mode: "add",
+          parameterValues
+        }).finally(() => {
+          injectInFlight = false;
+        });
+      }
+
+      const isCurrentlyAnimating = isBusy();
+      if (wasAnimating && !isCurrentlyAnimating) {
+        scheduleResetToDefaultState(lastResetDelaySec);
+      }
+      wasAnimating = isCurrentlyAnimating;
+
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>

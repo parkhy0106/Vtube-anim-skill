@@ -1,0 +1,8 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# VTube Studio runtime auth token & session lock state
+.vts_token
+.vts_default_state.json
